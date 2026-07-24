@@ -1,0 +1,17 @@
+execution:
+  backend: local
+
+# Paths are relative to the root of this checkout.
+paths:
+  repo_root: ramulator
+  trace_dir: cputraces
+  workspace_root: .
+  ramulator: ramulator/build/ramulator2
+
+traces:
+  archive_url: https://zenodo.org/records/21514600/files/mordor_cputraces_v1.tar.gz?download=1
+  archive_sha256: dafce2d59ebb84f29060ab779f615cff549734c8b1153e7bf3beaea29f7a97cf
+
+local:
+  # Commands placed near the top of every generated job script.
+  job_preamble: []

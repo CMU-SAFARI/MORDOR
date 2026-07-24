@@ -1,0 +1,24 @@
+cluster:
+  # Paths are relative to the evaluator account's SSH home directory.
+  # setup_ae.sh creates and populates repo_root; it may initially be absent.
+  host: aevaluator2@safari-proxy.ethz.ch
+  port: 22
+  identity_file: credentials/ae_cluster_key
+  repo_root: MORDOR
+  workspace_root: MORDOR/artifact_workspace
+
+  trace_dir: MORDOR/cputraces
+  trace_archive_url: https://zenodo.org/records/21514600/files/mordor_cputraces_v1.tar.gz?download=1
+  trace_archive_sha256: dafce2d59ebb84f29060ab779f615cff549734c8b1153e7bf3beaea29f7a97cf
+  ramulator: MORDOR/ramulator/build/ramulator2
+  python: python3
+  partition: high_latency
+  memory: 6GB
+  exclude: kratos10
+
+local:
+  results_root: results
+  paper_results_dir: paper_results
+  figure_dir: figures
+  plot_script: plotting/generate_paper_figures.py
+  openroad_dir: openroad

@@ -1,0 +1,44 @@
+Frontend:
+  Translation:
+    impl: RandomTranslation
+    max_addr: 2147483648
+  clock_ratio: 8
+  impl: SimpleO3
+  num_expected_insts: 10000000
+  traces:
+  - ./cputraces/519.lbm
+MemorySystem:
+  AddrMapper:
+    impl: MOP4CLXOR
+  Controller:
+    RefreshManager:
+      impl: AllBank
+    RowPolicy:
+      impl: OpenRowPolicy
+    Scheduler:
+      impl: FRFCFS_blacklisting
+    impl: Blacklisting
+    plugins:
+    - ControllerPlugin:
+        activation_threshold: 32
+        debug: false
+        impl: COMET
+        no_counters_per_hash: 512
+        no_hashes: 4
+        queue_type: read
+        insecure_read_queue: false
+        rat_size: 128
+  DRAM:
+    RFM: null
+    current: null
+    drampower_enable: true
+    impl: DDR5
+    org:
+      channel: 2
+      preset: DDR5_8Gb_x16
+      rank: 2
+    timing:
+      preset: DDR5_3200AN
+    voltage: null
+  clock_ratio: 3
+  impl: GenericDRAM

@@ -1,0 +1,29 @@
+execution:
+  backend: slurm
+
+# Paths are relative to the root of this checkout.
+paths:
+  repo_root: ramulator
+  trace_dir: cputraces
+  workspace_root: .
+  ramulator: ramulator/build/ramulator2
+
+traces:
+  archive_url: https://zenodo.org/records/21514600/files/mordor_cputraces_v1.tar.gz?download=1
+  archive_sha256: dafce2d59ebb84f29060ab779f615cff549734c8b1153e7bf3beaea29f7a97cf
+
+# Adapt these values to the local Slurm installation. Null values are omitted
+# from sbatch, allowing the cluster defaults to apply.
+slurm:
+  partition:
+  account:
+  qos:
+  constraint:
+  memory: 6GB
+  time:
+  exclude:
+  extra_args: []
+  # Commands placed near the top of every job script, for example:
+  # job_preamble:
+  #   - module load gcc/13
+  job_preamble: []

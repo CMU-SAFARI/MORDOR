@@ -1,0 +1,40 @@
+Frontend:
+  Translation:
+    impl: RandomTranslation
+    max_addr: 2147483648
+  clock_ratio: 8
+  impl: SimpleO3
+  num_expected_insts: 10000000
+  traces:
+  - ./cputraces/stream_10.trace
+MemorySystem:
+  AddrMapper:
+    impl: MOP4CLXOR
+  Controller:
+    RefreshManager:
+      impl: AllBank
+    RowPolicy:
+      impl: OpenRowPolicy
+    Scheduler:
+      impl: FRFCFS_blacklisting
+    impl: Blacklisting
+    plugins:
+    - ControllerPlugin:
+        impl: DAPPER_DDR5
+        queue_type: priority
+        insecure_read_queue: false
+        tRH: 500
+  DRAM:
+    RFM: null
+    current: null
+    drampower_enable: true
+    impl: DDR5
+    org:
+      channel: 2
+      preset: DDR5_8Gb_x8
+      rank: 2
+    timing:
+      preset: DDR5_3200AN
+    voltage: null
+  clock_ratio: 3
+  impl: GenericDRAM

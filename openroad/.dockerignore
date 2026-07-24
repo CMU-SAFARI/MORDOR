@@ -1,0 +1,7 @@
+out/
+**/results/
+**/logs/
+**/reports/
+*.tar.gz
+.git/
+out_*/
