@@ -7,7 +7,7 @@ cluster:
   repo_root: MORDOR
   workspace_root: MORDOR/artifact_workspace
 
-  trace_dir: MORDOR/cputraces
+  trace_dir: ../cputraces
   trace_archive_url: https://zenodo.org/records/21514600/files/mordor_cputraces_v1.tar.gz?download=1
   trace_archive_sha256: dafce2d59ebb84f29060ab779f615cff549734c8b1153e7bf3beaea29f7a97cf
   ramulator: MORDOR/ramulator/build/ramulator2
