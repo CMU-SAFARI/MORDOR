@@ -1,6 +1,6 @@
 # Top 25 PRO-intensive traces that are complete for every mechanism under all three configurations.
 # Execution-time reduction [%] = (Cycles_priority / Cycles_MORDOR - 1) * 100.
-TOP_PRO_TRACE_COUNT = 25
+TOP_PRO_TRACE_COUNT = min(25, len(PAPER_TRACES))
 SPEEDUP_MECHANISMS = ["abacus", "comet", "DAPPER", "graphene", "Hydra", "PARA"]
 # Reuse the shared greyscale mechanism palette. Hatches remain useful here
 # because six mechanisms are repeated within every trace group.

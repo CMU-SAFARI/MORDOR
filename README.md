@@ -217,6 +217,16 @@ After `progress` reports the complete matrix as valid, generate Figures 2 and
 .venv/bin/python reproduce.py figures
 ```
 
+To plot only selected traces, pass their exact names to the figure generator:
+
+```bash
+.venv/bin/python reproduce.py figures --traces 429.mcf 470.lbm
+```
+
+This rebuilds `paper_results/` with only the selected traces and uses that same
+cohort consistently across the generated figures. Omit `--traces` to retain
+the canonical 55-trace paper cohort.
+
 ### Long-running local execution
 
 The local backend needs no Slurm installation. It runs one simulation at a

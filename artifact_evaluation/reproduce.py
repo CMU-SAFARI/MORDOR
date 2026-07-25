@@ -529,6 +529,11 @@ def main() -> None:
     openroad_parser.add_argument("arguments", nargs=argparse.REMAINDER)
 
     figure_parser = subparsers.add_parser("figures")
+    figure_parser.add_argument(
+        "--traces",
+        nargs="+",
+        help="only plot these exact canonical trace names",
+    )
     figure_parser.add_argument("arguments", nargs=argparse.REMAINDER)
     add_native_parser(subparsers, "slurm", DEFAULT_SLURM_PROFILE)
     add_native_parser(subparsers, "local", DEFAULT_LOCAL_PROFILE)
@@ -596,8 +601,10 @@ def main() -> None:
         "--results-dir", str(resolve_path(local["paper_results_dir"], repo)),
         "--figures-dir", str(resolve_path(local["figure_dir"], repo)),
         "--rebuild-results",
-        *forwarded,
     ]
+    if args.traces:
+        command.extend(["--traces", *args.traces])
+    command.extend(forwarded)
     subprocess.run(command, check=True)
 
 

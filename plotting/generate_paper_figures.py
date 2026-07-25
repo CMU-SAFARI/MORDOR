@@ -9,6 +9,7 @@ Examples
     python plotting/generate_paper_figures.py
     python plotting/generate_paper_figures.py --rebuild-results
     python plotting/generate_paper_figures.py --rebuild-results --figures 6
+    python plotting/generate_paper_figures.py --rebuild-results --traces 429.mcf 470.lbm
 """
 
 from __future__ import annotations
@@ -113,6 +114,14 @@ def parse_args() -> argparse.Namespace:
         choices=tuple(FIGURE_SOURCES),
         default=list(FIGURE_SOURCES),
         help="data-derived figure numbers to generate (default: all)",
+    )
+    parser.add_argument(
+        "--traces",
+        nargs="+",
+        help=(
+            "only plot these exact canonical trace names "
+            "(default: all 55 paper traces)"
+        ),
     )
     return parser.parse_args()
 
@@ -504,29 +513,32 @@ def build_consolidated_results(
                         manifest,
                     )
 
-        # Figure 12 deliberately uses only 429.mcf.
+        # Figure 12 pools the selected latency traces.
         latency_root = source_root / "latency"
-        latency_files = sorted(latency_root.glob("*/*/429.mcf_latency.txt"))
-        if len(latency_files) != 12:
-            raise ValueError(
-                "Figure 12 requires 12 latency files for 429.mcf; "
-                f"found {len(latency_files)}"
+        for trace in paper_traces:
+            latency_files = sorted(
+                latency_root.glob(f"*/*/{trace}_latency.txt")
             )
-        for source in latency_files:
-            relative = source.relative_to(latency_root)
-            latency_destination = building / "latency" / relative.parent
-            latency_destination.mkdir(parents=True, exist_ok=True)
-            target = latency_destination / source.name
-            shutil.copy2(source, target)
-            manifest.append(
-                ManifestEntry(
-                    figures="12",
-                    destination=str(target.relative_to(building)),
-                    source=str(source.relative_to(source_root)),
-                    trace="429.mcf",
-                    size_bytes=target.stat().st_size,
+            if len(latency_files) != 12:
+                raise ValueError(
+                    f"Figure 12 requires 12 latency files for {trace}; "
+                    f"found {len(latency_files)}"
                 )
-            )
+            for source in latency_files:
+                relative = source.relative_to(latency_root)
+                latency_destination = building / "latency" / relative.parent
+                latency_destination.mkdir(parents=True, exist_ok=True)
+                target = latency_destination / source.name
+                shutil.copy2(source, target)
+                manifest.append(
+                    ManifestEntry(
+                        figures="12",
+                        destination=str(target.relative_to(building)),
+                        source=str(source.relative_to(source_root)),
+                        trace=trace,
+                        size_bytes=target.stat().st_size,
+                    )
+                )
 
         # Write the manifest and a concise description before publishing.
         with (building / "manifest.csv").open("w", newline="") as stream:
@@ -550,7 +562,8 @@ def build_consolidated_results(
         readme = f"""# Paper-only result bundle
 
 This directory contains only files consumed by the reproduced paper figures.
-The canonical cohort contains {len(paper_traces)} traces.
+The selected cohort contains {len(paper_traces)} trace(s):
+{", ".join(paper_traces)}.
 
 - `main/priority`: Priority scheduling.
 - `main/mordor`: the secure MORDOR policy.
@@ -560,7 +573,7 @@ The canonical cohort contains {len(paper_traces)} traces.
 - `bank_count`: Figure 9 inputs.
 - `blast_radius`: Figure 10 inputs.
 - `row_policy`: Figure 11 inputs.
-- `latency`: Figure 12's designated 429.mcf inputs.
+- `latency`: Figure 12 inputs for the selected trace cohort.
 
 Figure 10 currently uses {len(blast_traces)}/{len(paper_traces)} traces in
 every bar. Excluded uniformly: {", ".join(excluded_blast) if excluded_blast else "none"}.
@@ -603,6 +616,7 @@ def execute_figure_sources(
     figures_dir: Path,
     dpi: int,
     selected_figures: set[int],
+    selected_traces: list[str],
 ) -> None:
     try:
         import matplotlib
@@ -620,6 +634,7 @@ def execute_figure_sources(
         "__name__": "__mordor_paper_figure_generator__",
         "__file__": str(Path(__file__).resolve()),
         "display": display_for_script,
+        "AE_SELECTED_TRACES": list(selected_traces),
     }
 
     old_cwd = Path.cwd()
@@ -634,6 +649,9 @@ def execute_figure_sources(
         )
         for source_path in context_sources:
             execute_silently(source_path, namespace)
+            if source_path == CONTEXT_SOURCES[0]:
+                namespace["PAPER_TRACES"] = list(selected_traces)
+                namespace["PAPER_TRACE_SET"] = frozenset(selected_traces)
 
         for figure_number, source_path in FIGURE_SOURCES.items():
             if figure_number not in selected_figures:
@@ -706,7 +724,27 @@ def main() -> None:
             "Reduced result-bundle generation currently supports only "
             "--figures 6; omit --figures to generate all data-derived figures."
         )
-    paper_traces = load_paper_traces()
+    canonical_traces = load_paper_traces()
+    if args.traces:
+        requested = set(args.traces)
+        duplicates = sorted(
+            trace for trace in requested if args.traces.count(trace) > 1
+        )
+        unknown = sorted(requested - set(canonical_traces))
+        if duplicates:
+            raise SystemExit(
+                "Duplicate selected trace(s): " + ", ".join(duplicates)
+            )
+        if unknown:
+            raise SystemExit(
+                "Unknown selected trace(s): " + ", ".join(unknown)
+            )
+        paper_traces = [
+            trace for trace in canonical_traces if trace in requested
+        ]
+        print("Plotting selected traces: " + ", ".join(paper_traces))
+    else:
+        paper_traces = canonical_traces
 
     if args.rebuild_results or not results_dir.is_dir():
         build_consolidated_results(
@@ -721,6 +759,7 @@ def main() -> None:
         figures_dir=figures_dir,
         dpi=args.dpi,
         selected_figures=selected_figures,
+        selected_traces=paper_traces,
     )
     for number in set(FIGURE_SPECS) - selected_figures:
         (figures_dir / figure_filename(number)).unlink(missing_ok=True)

@@ -12,7 +12,7 @@ import numpy as np
 RESULTS_ROOT = Path("latency")
 
 # Exact trace names to include. Use [] to include every discovered trace.
-SELECTED_TRACES = ["429.mcf"]
+SELECTED_TRACES = list(globals().get("AE_SELECTED_TRACES") or ["429.mcf"])
 assert set(SELECTED_TRACES) <= PAPER_TRACE_SET
 PERCENTILE_POINTS = 1001
 
