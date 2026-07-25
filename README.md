@@ -59,7 +59,7 @@ install -m 600 /path/to/provided-private-key credentials/ae_cluster_key
 ```
 
 Prepare both the local plotting environment and the initially empty remote
-`~/MORDOR` directory:
+`/mnt/galactica/aevaluator2/MORDOR` directory:
 
 ```bash
 ./setup_ae.sh
@@ -71,14 +71,16 @@ Evaluators who have not received this key should use one of the alternative
 execution configurations below.
 
 Setup synchronizes the local GitHub checkout to the cluster, excluding the SSH
-key and every generated output. It downloads the canonical trace archive from
-Zenodo when `~/MORDOR/cputraces/` is absent, verifies its SHA-256 checksum, and
-safely extracts exactly the 55 paper traces. It then verifies SSH access, Slurm
-and build dependencies, workspace write access, and the Ramulator build.
-Re-running setup updates the remote source to match the local checkout while
-preserving the remote `artifact_workspace/` and `cputraces/`. For a Git checkout,
-setup requires a clean working tree and records the exact commit in
-`~/MORDOR/.artifact_source_revision`.
+key and every generated output. All hosted evaluator commands run from
+`/mnt/galactica/aevaluator2/MORDOR`. Setup downloads the canonical trace archive
+from Zenodo when `/mnt/galactica/aevaluator2/MORDOR/cputraces/` is absent,
+verifies its SHA-256 checksum, and safely extracts exactly the 55 paper traces.
+It then verifies SSH access, Slurm and build dependencies, workspace write
+access, and the Ramulator build. Re-running setup updates the remote source to
+match the local checkout while preserving the remote `artifact_workspace/` and
+`cputraces/`. For a Git checkout, setup requires a clean working tree and
+records the exact commit in
+`/mnt/galactica/aevaluator2/MORDOR/.artifact_source_revision`.
 
 Submit the complete experiment matrix:
 

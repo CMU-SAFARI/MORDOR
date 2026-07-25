@@ -202,11 +202,22 @@ def ssh_transport(config: dict, repo: Path) -> list[str]:
     return command
 
 
-def ssh_command(config: dict, repo: Path, remote_command: list[str]) -> list[str]:
+def ssh_command(
+    config: dict,
+    repo: Path,
+    remote_command: list[str],
+    *,
+    use_working_directory: bool = True,
+) -> list[str]:
+    command = shlex.join(remote_command)
+    working_directory = config["cluster"].get("working_directory")
+    if use_working_directory and working_directory:
+        directory = os.path.expandvars(str(working_directory))
+        command = f"cd -- {shlex.quote(directory)} && {command}"
     return [
         *ssh_transport(config, repo),
         config["cluster"]["host"],
-        shlex.join(remote_command),
+        command,
     ]
 
 
@@ -257,7 +268,12 @@ def upload_source(config: dict, repo: Path) -> None:
         f"Path({remote_repo!r}).mkdir(parents=True, exist_ok=True)"
     )
     subprocess.run(
-        ssh_command(config, repo, [python, "-c", mkdir_code]),
+        ssh_command(
+            config,
+            repo,
+            [python, "-c", mkdir_code],
+            use_working_directory=False,
+        ),
         check=True,
     )
 

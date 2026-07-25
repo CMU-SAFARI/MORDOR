@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 KEY="${MORDOR_AE_KEY:-${ROOT}/credentials/ae_cluster_key}"
 HOST="aevaluator2@safari-proxy.ethz.ch"
+REMOTE_DIR="/mnt/galactica/aevaluator2/MORDOR"
 ACTION="${1:-resume}"
 
 if [[ "${ACTION}" == "-h" || "${ACTION}" == "--help" ]]; then
@@ -36,7 +37,8 @@ SSH=(
 )
 
 if [[ "${ACTION}" == "queue" ]]; then
-  exec "${SSH[@]}" "squeue -u aevaluator2 -o '%.18i %.50j %.10T %.10M %.20R'"
+  exec "${SSH[@]}" \
+    "cd -- $(printf '%q' "${REMOTE_DIR}") && squeue -u aevaluator2 -o '%.18i %.50j %.10T %.10M %.20R'"
 fi
 
 case "${ACTION}" in
@@ -52,11 +54,11 @@ case "${ACTION}" in
 esac
 
 REMOTE=(
-  python3 MORDOR/artifact_evaluation/run_experiments.py
-  --repo-root MORDOR/ramulator
-  --trace-dir /mnt/panzer/mmakeenkova/EMPRESS/cputraces
-  --workspace-root ../artifact_workspace
-  --ramulator build/ramulator2
+  python3 artifact_evaluation/run_experiments.py
+  --repo-root "${REMOTE_DIR}/ramulator"
+  --trace-dir "${REMOTE_DIR}/cputraces"
+  --workspace-root "${REMOTE_DIR}/artifact_workspace"
+  --ramulator "${REMOTE_DIR}/ramulator/build/ramulator2"
   --classes main blast-radius
   --mechanisms PARA
   --traces 401.bzip2
@@ -67,7 +69,7 @@ REMOTE=(
 )
 printf -v REMOTE_COMMAND '%q ' "${REMOTE[@]}"
 
-"${SSH[@]}" "${REMOTE_COMMAND}"
+"${SSH[@]}" "cd -- $(printf '%q' "${REMOTE_DIR}") && ${REMOTE_COMMAND}"
 
 if [[ "${ACTION}" == "resume" || "${ACTION}" == "submit" ]]; then
   echo

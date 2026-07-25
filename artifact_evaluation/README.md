@@ -10,9 +10,11 @@ artifact-evaluation channel; it is only for evaluators authorized to use our
 SAFARI infrastructure. Credentials are read from
 `../credentials/ae_cluster_key`, which is deliberately excluded from version
 control. `../setup_ae.sh` creates that slot when needed, uploads the local
-GitHub checkout into the initially empty remote `~/MORDOR`, checks the remote
-environment, and builds the simulator. Re-running setup updates source files
-but preserves `~/MORDOR/artifact_workspace`.
+GitHub checkout into the initially empty remote
+`/mnt/galactica/aevaluator2/MORDOR`, checks the remote environment, and builds
+the simulator. Hosted evaluator commands run from that directory. Re-running
+setup updates source files but preserves
+`/mnt/galactica/aevaluator2/MORDOR/artifact_workspace`.
 
 Two native execution profiles are also provided:
 
