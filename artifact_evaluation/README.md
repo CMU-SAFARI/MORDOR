@@ -21,7 +21,8 @@ Two native execution profiles are also provided:
 - `generic_slurm_config.yaml` runs directly from a checkout on any Slurm
   cluster. Site-specific partition, account, QoS, constraint, time, extra
   `sbatch` arguments, and job preamble settings are optional.
-- `local_config.yaml` runs the same jobs serially on one Linux machine.
+- `local_config.yaml` runs the same jobs serially on one Linux machine and
+  limits compiler parallelism to two jobs by default.
 
 Neither native profile requires the SAFARI SSH key or access to our
 infrastructure.

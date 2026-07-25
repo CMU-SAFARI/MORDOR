@@ -12,6 +12,13 @@ from pathlib import Path
 from common import TRACES
 
 
+def positive_int(value: str) -> int:
+    parsed = int(value)
+    if parsed < 1:
+        raise argparse.ArgumentTypeError("must be at least 1")
+    return parsed
+
+
 def require_command(name: str) -> None:
     if shutil.which(name) is None:
         raise SystemExit(f"environment setup failed: required command not found: {name}")
@@ -25,6 +32,11 @@ def main() -> None:
     parser.add_argument("--ramulator", type=Path, required=True)
     parser.add_argument("--backend", choices=("slurm", "local"), default="slurm")
     parser.add_argument("--build", action="store_true")
+    parser.add_argument(
+        "--build-jobs",
+        type=positive_int,
+        help="maximum number of concurrent compiler jobs",
+    )
     args = parser.parse_args()
 
     if sys.version_info < (3, 9):
@@ -73,10 +85,10 @@ def main() -> None:
             ["cmake", "-S", str(args.repo_root), "-B", str(build_dir)],
             check=True,
         )
-        subprocess.run(
-            ["cmake", "--build", str(build_dir), "-j"],
-            check=True,
-        )
+        build_command = ["cmake", "--build", str(build_dir), "-j"]
+        if args.build_jobs is not None:
+            build_command.append(str(args.build_jobs))
+        subprocess.run(build_command, check=True)
 
     if not args.ramulator.is_file():
         raise SystemExit(

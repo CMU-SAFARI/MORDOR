@@ -13,5 +13,8 @@ traces:
   archive_sha256: dafce2d59ebb84f29060ab779f615cff549734c8b1153e7bf3beaea29f7a97cf
 
 local:
+  # Limit compiler parallelism to avoid exhausting memory on smaller hosts.
+  # Increase this only when the machine has enough RAM for concurrent C++ builds.
+  build_jobs: 2
   # Commands placed near the top of every generated job script.
   job_preamble: []

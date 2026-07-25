@@ -228,6 +228,10 @@ cp artifact_evaluation/local_config.yaml \
    artifact_evaluation/execution_config.yaml
 ```
 
+The local profile limits the build to two concurrent compiler jobs to reduce
+peak memory use. Set `local.build_jobs` to `1` for the lowest-memory build, or
+raise it if the host has sufficient RAM.
+
 Prepare the traces and simulator, then plan and run a small cohort:
 
 ```bash

@@ -59,6 +59,23 @@ def native_paths(profile: dict) -> dict[str, Path]:
     }
 
 
+def native_build_jobs(profile: dict, backend: str) -> int | None:
+    value = profile.get(backend, {}).get("build_jobs")
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        raise SystemExit(f"{backend}.build_jobs must be a positive integer")
+    try:
+        jobs = int(value)
+    except (TypeError, ValueError):
+        raise SystemExit(
+            f"{backend}.build_jobs must be a positive integer"
+        ) from None
+    if jobs < 1:
+        raise SystemExit(f"{backend}.build_jobs must be a positive integer")
+    return jobs
+
+
 def native_setup(profile: dict, backend: str) -> None:
     paths = native_paths(profile)
     traces = profile["traces"]
@@ -78,19 +95,20 @@ def native_setup(profile: dict, backend: str) -> None:
         ],
         check=True,
     )
-    subprocess.run(
-        [
-            sys.executable,
-            str(SCRIPT_DIR / "check_cluster.py"),
-            "--backend", backend,
-            "--repo-root", str(paths["repo_root"]),
-            "--workspace-root", str(paths["workspace_root"]),
-            "--trace-dir", str(paths["trace_dir"]),
-            "--ramulator", str(paths["ramulator"]),
-            "--build",
-        ],
-        check=True,
-    )
+    command = [
+        sys.executable,
+        str(SCRIPT_DIR / "check_cluster.py"),
+        "--backend", backend,
+        "--repo-root", str(paths["repo_root"]),
+        "--workspace-root", str(paths["workspace_root"]),
+        "--trace-dir", str(paths["trace_dir"]),
+        "--ramulator", str(paths["ramulator"]),
+        "--build",
+    ]
+    build_jobs = native_build_jobs(profile, backend)
+    if build_jobs is not None:
+        command.extend(["--build-jobs", str(build_jobs)])
+    subprocess.run(command, check=True)
 
 
 def native_command(
@@ -538,8 +556,16 @@ def main() -> None:
             native_setup(profile, args.target)
             return
         if args.action == "build":
+            command = [
+                sys.executable,
+                str(SCRIPT_DIR / "run_artifact.py"),
+            ]
+            build_jobs = native_build_jobs(profile, args.target)
+            if build_jobs is not None:
+                command.extend(["--build-jobs", str(build_jobs)])
+            command.append("build")
             subprocess.run(
-                [sys.executable, str(SCRIPT_DIR / "run_artifact.py"), "build"],
+                command,
                 check=True,
             )
             return

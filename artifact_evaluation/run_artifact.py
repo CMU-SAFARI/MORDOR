@@ -14,8 +14,20 @@ from common import repo_root_from_script
 SCRIPT_DIR = Path(__file__).resolve().parent
 
 
+def positive_int(value: str) -> int:
+    parsed = int(value)
+    if parsed < 1:
+        raise argparse.ArgumentTypeError("must be at least 1")
+    return parsed
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--build-jobs",
+        type=positive_int,
+        help="maximum number of concurrent compiler jobs",
+    )
     parser.add_argument("action", choices=["build", "experiments", "all"])
     parser.add_argument("arguments", nargs=argparse.REMAINDER,
                         help="arguments forwarded to the selected stage")
@@ -27,7 +39,10 @@ def main() -> None:
     if args.action in ("build", "all"):
         repo = repo_root_from_script()
         subprocess.run(["cmake", "-S", str(repo), "-B", str(repo / "build")], check=True)
-        subprocess.run(["cmake", "--build", str(repo / "build"), "-j"], check=True)
+        build_command = ["cmake", "--build", str(repo / "build"), "-j"]
+        if args.build_jobs is not None:
+            build_command.append(str(args.build_jobs))
+        subprocess.run(build_command, check=True)
     if args.action in ("experiments", "all"):
         subprocess.run([sys.executable, str(SCRIPT_DIR / "run_experiments.py"), *forwarded], check=True)
 
