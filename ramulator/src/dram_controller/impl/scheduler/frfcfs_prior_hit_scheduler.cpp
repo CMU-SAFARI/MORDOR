@@ -135,7 +135,7 @@ class FRFCFS_prior_hit : public IScheduler, public Implementation {
       // if best candidate is a row hit and ready, return it
       {
         HERE;
-        DEBUG_PRINT("cursed? " << get_string_addr(candidate->addr_vec));
+        DEBUG_PRINT("candidate: " << get_string_addr(candidate->addr_vec));
         bool row_hit = false;
         if (!has_wildcard(candidate->addr_vec)) {
           // not DRFMsb request, so we can check for row hit
@@ -196,11 +196,6 @@ class FRFCFS_prior_hit : public IScheduler, public Implementation {
       return candidate;
     }
 
-    ReqBuffer::iterator get_best_request_old(ReqBuffer &buffer) override {
-      return get_best_request(buffer);
-    }
-
-    
       virtual void tick() override {
   }
 };

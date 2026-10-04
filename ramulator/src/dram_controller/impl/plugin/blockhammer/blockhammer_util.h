@@ -27,7 +27,7 @@ class CountingBloomFilter : public IBloomFilter<elem_t> {
 public:
   CountingBloomFilter(int num_counters, int ctr_thresh, bool saturate,
         std::vector<bloom_hash_fn>& hash_functions) : m_hash_functions(hash_functions) {
-      // Initializers looks ugly here, opting for manual assignment
+      // Use explicit assignment here for readability.
       this->m_num_counters = num_counters;
       this->m_ctr_thresh = ctr_thresh;
       this->m_saturate = m_saturate;

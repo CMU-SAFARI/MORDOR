@@ -32,6 +32,7 @@ private:
   int s_max_act_count = 0;
 
   int m_bank_addr_idx = -1;
+  int m_col_addr_idx = -1;
 
   float m_wr_low_watermark;
   float m_wr_high_watermark;
@@ -65,10 +66,16 @@ private:
   float s_write_queue_len_avg = 0;
   float s_priority_queue_len_avg = 0;
 
-  size_t rw_delayed_by_PRO = 0;
-  float avg_num_delayed_by_PRO = 0;
+  size_t demand_delayed_by_PRO = 0;
+  float avg_num_demand_delayed_by_PRO = 0;
+  size_t read_demand_delayed_by_PRO = 0;
+  float avg_num_read_demand_delayed_by_PRO = 0;
+  size_t write_demand_delayed_by_PRO = 0;
+  float avg_num_write_demand_delayed_by_PRO = 0;
   size_t num_counted_PROs = 0;
-  int max_num_delayed_by_PRO = 0;
+  int max_num_demand_delayed_by_PRO = 0;
+  int max_num_read_demand_delayed_by_PRO = 0;
+  int max_num_write_demand_delayed_by_PRO = 0;
 
   size_t s_read_latency = 0;
   float s_avg_read_latency = 0;
@@ -87,26 +94,32 @@ private:
   float s_max_proq_time = 0;
   float s_min_proq_time = -1;
   size_t s_num_early_pros_due_to_proq_occupancy = 0;
+  size_t s_num_rd_proq_adds = 0;
+  size_t s_num_rd_proq_removes = 0;
+  size_t s_num_wr_proq_adds = 0;
+  size_t s_num_wr_proq_removes = 0;
+  size_t s_current_rd_proq_entries = 0;
+  size_t s_max_rd_proq_entries = 0;
+  size_t s_current_wr_proq_entries = 0;
+  size_t s_max_wr_proq_entries = 0;
+  size_t s_num_capacity_promotions_rd = 0;
+  size_t s_num_capacity_promotions_wr = 0;
+  size_t s_num_capacity_promotions_pro = 0;
 
   int not_found_req = 0;
 
-  // Reserve the last two PROQ entries for PROs caused by the PRO at its head.
-  // After issuing the head, drain from the tail until those entries are free.
-  static constexpr size_t k_proq_capacity = 32;
-  static constexpr size_t k_proq_reserved_entries = 2;
-  static constexpr size_t k_proq_drain_threshold =
-      k_proq_capacity - k_proq_reserved_entries;
+  // Historical default: promote at 30 entries (a 32-entry target with two
+  // entries reserved for PROs caused by the PRO at the head).
+  static constexpr size_t k_default_proq_occupancy_promotion_threshold = 30;
+  size_t m_proq_occupancy_promotion_threshold =
+      k_default_proq_occupancy_promotion_threshold;
   bool m_drain_proq_from_tail = false;
-  bool m_occupancy_promoted_pro_pending = false;
+  bool m_occupancy_promoted_request_pending = false;
   bool m_occupancy_promoted_from_tail = false;
   AddrVec_t m_occupancy_promoted_addr;
+  Request::MitigationType m_occupancy_promoted_type =
+      Request::MitigationType::None;
 
-  float num_qos_pros = 0;
-  float num_qosq_inserts = 0;
-  float num_qosq_removes = 0;
-  int s_max_qos_th = 0;
-
-  // memory system reference to count the number of DRFM refreshes
   IMemorySystem *m_system = nullptr;
 
   // PROQ stats:
@@ -114,19 +127,16 @@ private:
   float s_avg_blacklist_size = 0;
   float s_blacklist_len = 0;
 
-  //#define DEBUG
-  // macros for debugging
   #ifdef DEBUG
     #define HERE std::cout << "[HERE] " << __FILE__ << ":" << __FUNCTION__ << ":" << __LINE__ << std::endl
     #define DEBUG_PRINT(x) std::cout << "MC: " << x << std::endl
   #else
     #define DEBUG_PRINT(x)
     #define HERE
-  #endif 
+  #endif
 
-  // function to get the string representation of an address vector
   std::string get_string_addr(const AddrVec_t& addr) {
-    std::ostringstream a; 
+    std::ostringstream a;
     for (size_t i=0; i<addr.size(); ++i) {
       a << addr[i];
     }
@@ -134,113 +144,94 @@ private:
   }
 
 public:
+  // Public because the blacklisting scheduler checks the active buffer.
   ReqBuffer m_active_buffer;
 
-  std::vector<AddrVec_t> blacklist;
+  struct TrackedPROQEntry {
+    AddrVec_t addr_vec;
+    Request::MitigationType type;
+  };
+  std::vector<TrackedPROQEntry> blacklist;
   std::vector<Request> blacklist_buffer;
   float s_blacklisted_counter = 0;
   float s_blacklist_max_length = 0;
 
   float num_cycle_no_request_found = 0;
 
-  int QoS_threshold = 5;
-
-  struct PROQ_Entry {
-    AddrVec_t addr_vec;
-    int wait_for_threshold;
-  };
-  std::vector<PROQ_Entry> proq_entries;
-
-  void insert_proq_entry(AddrVec_t addr_vec) {
-    num_qosq_inserts += 1;
-    PROQ_Entry entry;
-    entry.addr_vec = addr_vec;
-    entry.wait_for_threshold = 0;
-    proq_entries.push_back(entry);
-  }
-
-  void insert_drfmab_proq_entry(AddrVec_t addr_vec) {
-    int m_bank_level = m_dram->m_levels("bank");
-    addr_vec[m_bank_level] = -1;
-
-    for (const auto &entry : proq_entries) {
-      if (entry.addr_vec == addr_vec) {
-        return;
-      }
+  bool addresses_overlap(const AddrVec_t& lhs, const AddrVec_t& rhs) const {
+    if (lhs.size() != rhs.size()) return false;
+    for (size_t i = 0; i < lhs.size(); i++) {
+      if (lhs[i] != -1 && rhs[i] != -1 && lhs[i] != rhs[i]) return false;
     }
-    num_qosq_inserts += 1;
-    PROQ_Entry entry;
-    entry.addr_vec = addr_vec;
-    entry.wait_for_threshold = 0;
-    proq_entries.push_back(entry);
+    return true;
   }
 
-  void increment_proq_waits(AddrVec_t addr_vec) override {
-    AddrVec_t av = addr_vec;
-    AddrVec_t av_ab = addr_vec;
-    int m_bank_group_level = m_dram->m_levels("bankgroup");
-    int m_bank_level = m_dram->m_levels("bank");
-    av[m_bank_group_level] = -1;
-    av_ab[m_bank_group_level] = -1;
-    av_ab[m_bank_level] = -1;
+  AddrVec_t metadata_row_address(const Request& req) const {
+    AddrVec_t addr = req.addr_vec;
+    addr[m_col_addr_idx] = -1;
+    return addr;
+  }
 
-    for (auto &entry : proq_entries) {
-      if (entry.addr_vec == av || entry.addr_vec == av_ab) {
-        entry.wait_for_threshold += 1;
-        if (entry.wait_for_threshold > s_max_qos_th) s_max_qos_th = entry.wait_for_threshold;
-      }
+  bool request_matches_entry(const Request& req,
+                             const TrackedPROQEntry& entry) const {
+    return req.mitigation_type == entry.type &&
+           addresses_overlap(req.addr_vec, entry.addr_vec);
+  }
+
+  void update_typed_proq_add_stats(Request::MitigationType type) {
+    if (type == Request::MitigationType::RD) {
+      s_num_rd_proq_adds++;
+      s_current_rd_proq_entries++;
+      s_max_rd_proq_entries =
+          std::max(s_max_rd_proq_entries, s_current_rd_proq_entries);
+    } else if (type == Request::MitigationType::WR) {
+      s_num_wr_proq_adds++;
+      s_current_wr_proq_entries++;
+      s_max_wr_proq_entries =
+          std::max(s_max_wr_proq_entries, s_current_wr_proq_entries);
     }
   }
 
-  int get_proq_waits(AddrVec_t addr_vec) override {
-    for (auto &entry : proq_entries) {
-      if (entry.addr_vec == addr_vec) {
-        return entry.wait_for_threshold;
-      }
+  void add_accepted_metadata_to_proq(Request& req) {
+    if (req.mitigation_type != Request::MitigationType::RD &&
+        req.mitigation_type != Request::MitigationType::WR) {
+      return;
     }
-    return -1;
+    blacklist.push_back({metadata_row_address(req), req.mitigation_type});
+    s_num_proq_adds++;
+    update_typed_proq_add_stats(req.mitigation_type);
+    s_max_blacklist_size = std::max<float>(s_max_blacklist_size,
+                                            blacklist.size());
   }
 
-  void remove_qos_proq_entry(AddrVec_t addr_vec) {
-    for (auto it = proq_entries.begin(); it != proq_entries.end(); ++it) {
-      if (it->addr_vec == addr_vec) {
-        num_qosq_removes += 1;
-        proq_entries.erase(it);
-        return;
+  bool remove_one_metadata_proq_entry(const Request& req) {
+    for (auto it = blacklist.begin(); it != blacklist.end(); ++it) {
+      if (request_matches_entry(req, *it)) {
+        if (it->type == Request::MitigationType::RD) {
+          s_num_rd_proq_removes++;
+          s_current_rd_proq_entries--;
+        } else if (it->type == Request::MitigationType::WR) {
+          s_num_wr_proq_removes++;
+          s_current_wr_proq_entries--;
+        }
+        if (req.proq_enc >= 0) {
+          float time_in_proq = m_clk - req.proq_enc;
+          s_total_proq_time += time_in_proq;
+          s_max_proq_time = std::max(s_max_proq_time, time_in_proq);
+          if (s_min_proq_time == -1 || time_in_proq < s_min_proq_time) {
+            s_min_proq_time = time_in_proq;
+          }
+        }
+        blacklist.erase(it);
+        s_num_proq_remv++;
+        return true;
       }
-    }
-  }
-
-  AddrVec_t get_first_exceeding_proq_threshold() {
-    for (auto &entry : proq_entries) {
-      if (entry.wait_for_threshold >= QoS_threshold) {
-        AddrVec_t res = entry.addr_vec;
-        return res;
-      }
-    }
-    AddrVec_t empty = {-1, 0, 0,};
-    return empty;
-  }
-
-  bool in_queue(const AddrVec_t& addr, ReqBuffer& queue) {
-    for (const auto& item : queue) {
-      if (item.addr_vec == addr) return true;
     }
     return false;
   }
 
-  void remove_from_read_queue(const AddrVec_t& addr) {
-    for (auto it = m_read_buffer.begin(); it!=m_read_buffer.end();) {
-      if (it->addr_vec == addr) {
-        m_read_buffer.remove(it); 
-        return;
-      } else {
-        ++it;
-      }
-    }
-  }
-
   void addToBlacklist(Request& req, bool ab) override {
+    req.mitigation_type = Request::MitigationType::PRO;
     req.proq_enc = m_clk;
     AddrVec_t address = req.addr_vec;
     float l = blacklist.size();
@@ -251,14 +242,14 @@ public:
     AddrVec_t addr = address;
     addr[m_bank_group_level] = -1;
 
-    if (!isAddressBlacklisted(addr)) {
-      blacklist.push_back(addr);
+    bool already_tracked = std::any_of(
+        blacklist.begin(), blacklist.end(), [&](const TrackedPROQEntry& entry) {
+          return entry.type == Request::MitigationType::PRO &&
+                 entry.addr_vec == addr;
+        });
+    if (!already_tracked) {
+      blacklist.push_back({addr, Request::MitigationType::PRO});
       s_num_proq_adds += 1;
-      if (ab) {
-        insert_drfmab_proq_entry(addr);
-      } else {
-        insert_proq_entry(addr);
-      }
     }
 
     if (blacklist.size() > s_max_blacklist_size) {
@@ -267,6 +258,16 @@ public:
   }
 
   void init() override {
+    int configured_proq_occupancy_threshold =
+        param<int>("proq_occupancy_promotion_threshold")
+            .desc("Number of PROQ entries that triggers occupancy-based PRO promotion.")
+            .default_val(k_default_proq_occupancy_promotion_threshold);
+    if (configured_proq_occupancy_threshold <= 0) {
+      throw std::runtime_error(
+          "proq_occupancy_promotion_threshold must be greater than zero");
+    }
+    m_proq_occupancy_promotion_threshold =
+        static_cast<size_t>(configured_proq_occupancy_threshold);
     m_wr_low_watermark = param<float>("wr_low_watermark")
                              .desc("Threshold for switching back to read mode.")
                              .default_val(0.2f);
@@ -294,6 +295,7 @@ public:
   void setup(IFrontEnd *frontend, IMemorySystem *memory_system) override {
     m_dram = memory_system->get_ifce<IDRAM>();
     m_bank_addr_idx = m_dram->m_levels("bank");
+    m_col_addr_idx = m_dram->m_levels("column");
     m_priority_buffer.max_size = 32;
 
     m_num_cores = frontend->get_num_cores();
@@ -360,43 +362,79 @@ public:
     register_stat(s_min_proq_time).name("min_PROQ_time");
     register_stat(s_num_early_pros_due_to_proq_occupancy)
         .name("num_early_PROs_due_to_PROQ_occupancy");
+    register_stat(s_num_rd_proq_adds).name("num_RD_PROQ_adds");
+    register_stat(s_num_rd_proq_removes).name("num_RD_PROQ_removes");
+    register_stat(s_num_wr_proq_adds).name("num_WR_PROQ_adds");
+    register_stat(s_num_wr_proq_removes).name("num_WR_PROQ_removes");
+    register_stat(s_current_rd_proq_entries).name("current_RD_PROQ_entries");
+    register_stat(s_max_rd_proq_entries).name("max_RD_PROQ_entries");
+    register_stat(s_current_wr_proq_entries).name("current_WR_PROQ_entries");
+    register_stat(s_max_wr_proq_entries).name("max_WR_PROQ_entries");
+    register_stat(s_num_capacity_promotions_rd)
+        .name("num_capacity_promotions_RD");
+    register_stat(s_num_capacity_promotions_wr)
+        .name("num_capacity_promotions_WR");
+    register_stat(s_num_capacity_promotions_pro)
+        .name("num_capacity_promotions_PRO");
+    register_stat(m_proq_occupancy_promotion_threshold)
+        .name("PROQ_occupancy_promotion_threshold");
 
-    register_stat(num_qos_pros).name("num_QoS_PROs");
-    register_stat(QoS_threshold).name("QoS_threshold");
-    register_stat(num_qosq_inserts).name("num_qosq_inserts");
-    register_stat(num_qosq_removes).name("num_qosq_removes");
-    register_stat(s_max_qos_th).name("max_QoS_th");
-
-    register_stat(avg_num_delayed_by_PRO).name("avg_num_rw_delayed_by_PRO");
+    register_stat(avg_num_demand_delayed_by_PRO)
+        .name("avg_num_demand_delayed_by_PRO");
     register_stat(num_counted_PROs).name("num_counted_PROs");
-    register_stat(max_num_delayed_by_PRO).name("max_num_rw_delayed_by_PRO");
+    register_stat(max_num_demand_delayed_by_PRO)
+        .name("max_num_demand_delayed_by_PRO");
+    register_stat(avg_num_read_demand_delayed_by_PRO)
+        .name("avg_num_read_demand_delayed_by_PRO");
+    register_stat(max_num_read_demand_delayed_by_PRO)
+        .name("max_num_read_demand_delayed_by_PRO");
+    register_stat(avg_num_write_demand_delayed_by_PRO)
+        .name("avg_num_write_demand_delayed_by_PRO");
+    register_stat(max_num_write_demand_delayed_by_PRO)
+        .name("max_num_write_demand_delayed_by_PRO");
 
     register_stat(num_cycle_no_request_found).name("num_cycle_no_request_found");
   };
 
   bool send(Request &req) override {
-    if (req.type_id == Request::Type::Read) {
+    // Count processor reads only; mitigation metadata uses source_id == -1.
+    if (req.type_id == Request::Type::Read &&
+        req.mitigation_type == Request::MitigationType::None &&
+        req.source_id >= 0) {
       s_num_read_reqs += 1;
     }
 
     req.final_command = m_dram->m_request_translations(req.type_id);
+    if (req.mitigation_type == Request::MitigationType::RD ||
+        req.mitigation_type == Request::MitigationType::WR) {
+      req.proq_enc = m_clk;
+    }
 
     // Forward existing write requests to incoming read requests
     if (req.type_id == Request::Type::Read) {
-      auto compare_addr = [req](const Request &wreq) {
-        return wreq.addr == req.addr;
+      auto compare_addr = [&req](const Request &wreq) {
+        if (req.addr >= 0 && wreq.addr >= 0) {
+          return wreq.addr == req.addr;
+        }
+
+        // Internally generated requests (e.g., Hydra RCT accesses) are built
+        // from an address vector and leave the scalar address at -1. In that
+        // case, only forward an exact address-vector match; two unavailable
+        // scalar addresses do not identify the same memory location.
+        return !req.addr_vec.empty() && !wreq.addr_vec.empty() &&
+               wreq.addr_vec == req.addr_vec;
       };
       if (std::find_if(m_write_buffer.begin(), m_write_buffer.end(),
                        compare_addr) != m_write_buffer.end()) {
-        // The request will depart at the next cycle
+        req.arrive = m_clk;
         req.depart = m_clk + 1;
         pending.push_back(req);
+        add_accepted_metadata_to_proq(req);
         m_system->inc_req_count(req);
         return true;
       }
     }
 
-    // Else, enqueue them to corresponding buffer based on request type id
     bool is_success = false;
     req.arrive = m_clk;
     if ((req.type_id == Request::Type::Read ||
@@ -411,8 +449,13 @@ public:
     }
     if (!is_success) {
       req.arrive = -1;
+      if (req.mitigation_type == Request::MitigationType::RD ||
+          req.mitigation_type == Request::MitigationType::WR) {
+        req.proq_enc = -1;
+      }
       return false;
     }
+    add_accepted_metadata_to_proq(req);
     m_system->inc_req_count(req);
     return true;
   };
@@ -443,6 +486,8 @@ public:
   void tick() override {
     m_clk++;
 
+    // Move at most one occupancy-selected mitigation request into the priority
+    // queue. Wait until it issues before choosing the next head/tail entry.
     prioritize_proq_for_occupancy();
 
     if (s_blacklist_max_length < blacklist.size()) s_blacklist_max_length = blacklist.size();
@@ -470,28 +515,40 @@ public:
 
     // 3. Update all plugins
     if (!request_found) {
+      // no request found, no need to check for blacklisted
       for (auto plugin : m_plugins) {
         plugin->update(request_found, req_it);
       }
+
     }
 
     // 4. Finally, issue the commands to serve the request
     if (request_found) {
-      bool issued_occupancy_promoted_pro =
-          m_occupancy_promoted_pro_pending &&
-          pro_targets_address(*req_it, m_occupancy_promoted_addr);
+      bool issued_occupancy_promoted_request =
+          m_occupancy_promoted_request_pending &&
+          req_it->mitigation_type == m_occupancy_promoted_type &&
+          addresses_overlap(req_it->addr_vec, m_occupancy_promoted_addr);
 
+      if ((req_it->mitigation_type == Request::MitigationType::RD ||
+           req_it->mitigation_type == Request::MitigationType::WR) &&
+          req_it->command == req_it->final_command) {
+        remove_one_metadata_proq_entry(*req_it);
+      }
+
+      // if request is a DRFM, we need to unblacklist the corresponding address
       if (req_it->type_id == m_dram->m_requests("same-bank-directed-rfm")) {
+        // unblacklist the address if DRFM will be issued next
         for (auto it = blacklist.begin(); it != blacklist.end();) {
-          AddrVec_t addr = *it;
+          AddrVec_t addr = it->addr_vec;
           int m_bank_group_level = m_dram->m_levels("bankgroup");
           addr[m_bank_group_level] = -1;
           AddrVec_t addr_v = req_it->addr_vec;
           addr_v[m_bank_group_level] = -1;
 
-          if (addr == addr_v) {
+          if (it->type == Request::MitigationType::PRO && addr == addr_v) {
             it = blacklist.erase(it);
-            
+
+            // keep track of time spent in PROQ for stats
             s_num_proq_remv+=1;
             req_it->proq_dec = m_clk;
             float time_in_proq = req_it->proq_dec - req_it->proq_enc;
@@ -504,33 +561,21 @@ public:
           }
         }
 
-        for (auto it_ = proq_entries.begin(); it_!=proq_entries.end();) {
-          AddrVec_t addr = it_->addr_vec;
-          int m_bank_group_level = m_dram->m_levels("bankgroup");
-          addr[m_bank_group_level] = -1;
-          AddrVec_t addr_v = req_it->addr_vec;
-          addr_v[m_bank_group_level] = -1;
-
-          if (addr == addr_v) {
-            num_qosq_removes += 1;
-            it_ = proq_entries.erase(it_);
-          } else {
-            ++it_;
-          }
-        }
       } else if (req_it->type_id == m_dram->m_requests("directed-rfm")){
+        // DRFMab request: try to unblacklist the address across all banks (assume 32 banks):
         int m_bank_level = m_dram->m_levels("bank");
         for (int i=0; i<32; i++) {
           for (auto it = blacklist.begin(); it != blacklist.end();) {
-            AddrVec_t addr = *it;
+            AddrVec_t addr = it->addr_vec;
             int m_bank_group_level = m_dram->m_levels("bankgroup");
             addr[m_bank_group_level] = -1;
             AddrVec_t addr_v = req_it->addr_vec;
             addr_v[m_bank_group_level] = -1;
             addr_v[m_bank_level] = i;
 
-            if (addr == addr_v) {
+            if (it->type == Request::MitigationType::PRO && addr == addr_v) {
               it = blacklist.erase(it);
+              // keep track of time spent in PROQ for stats
               s_num_proq_remv += 1;
               req_it->proq_dec = m_clk;
               float time_in_proq = req_it->proq_dec - req_it->proq_enc;
@@ -541,35 +586,20 @@ public:
           } else {
             ++it;
           }
+        }
+        }
 
-        for (auto it_ = proq_entries.begin(); it_!=proq_entries.end();) {
-          AddrVec_t addr = it_->addr_vec;
-          int m_bank_group_level = m_dram->m_levels("bankgroup");
-          int m_bank_level = m_dram->m_levels("bank");
-          addr[m_bank_group_level] = -1;
-          addr[m_bank_level] = -1;
-          AddrVec_t addr_v = req_it->addr_vec;
-          addr_v[m_bank_group_level] = -1;
-          addr_v[m_bank_level] = -1;
-
-          if (addr == addr_v) {
-            num_qosq_removes += 1;
-            it_ = proq_entries.erase(it_);
-          } else {
-            ++it_;
-          }
-        }
-        }
-        }
-        
       }
 
-      if (issued_occupancy_promoted_pro) {
-        s_num_early_pros_due_to_proq_occupancy += 1;
-        m_occupancy_promoted_pro_pending = false;
+      if (issued_occupancy_promoted_request) {
+        if (m_occupancy_promoted_type == Request::MitigationType::PRO) {
+          s_num_early_pros_due_to_proq_occupancy += 1;
+        }
+        m_occupancy_promoted_request_pending = false;
+        m_occupancy_promoted_type = Request::MitigationType::None;
         if (m_occupancy_promoted_from_tail) {
           m_drain_proq_from_tail =
-              blacklist.size() > k_proq_drain_threshold;
+              blacklist.size() > m_proq_occupancy_promotion_threshold;
         } else {
           m_drain_proq_from_tail = true;
         }
@@ -589,7 +619,7 @@ public:
       DEBUG_PRINT("about to issue request of type: " << req_it->type_id
           << " to address: " << get_string_addr(req_it->addr_vec));
       m_dram->issue_command(req_it->command, req_it->addr_vec);
-      
+
       // If we are issuing the last command, set depart clock cycle and move the
       // request to the pending queue
       if (req_it->command == req_it->final_command) {
@@ -600,6 +630,7 @@ public:
         } else {
           req_it->depart = m_clk + m_dram->m_read_latency;
         }
+        // get PRO latency stats
         if (req_it->command == m_dram->m_commands("DRFMsb") ||
             req_it->command == m_dram->m_commands("DRFMab")) {
           int latency = req_it->depart - req_it->arrive;
@@ -621,7 +652,7 @@ public:
 
   bool isAddressBlacklisted(const AddrVec_t& address) {
     for (const auto &item : blacklist) {
-      if (item == address) {
+      if (addresses_overlap(item.addr_vec, address)) {
         return true;
       }
     }
@@ -629,45 +660,26 @@ public:
   }
 
   bool checkBlacklisted(AddrVec_t &address) override {
-    AddrVec_t address_ = address;
-    int m_bank_group_level = m_dram->m_levels("bankgroup");
-    address_[m_bank_group_level] = -1;
-    for (const auto& addr : blacklist) {
-      AddrVec_t addr_ = addr;
-      addr_[m_bank_group_level] = -1;
-
-      if (address_ == addr_) {
-        return true;
-      }
+    for (const auto& entry : blacklist) {
+      if (addresses_overlap(entry.addr_vec, address)) return true;
     }
-
     return false;
+  }
+
+  bool checkBlacklisted(Request& req) override {
+    if (req.mitigation_type != Request::MitigationType::None) return false;
+    return checkBlacklisted(req.addr_vec);
   }
 
 
 private:
-  /**
-   * @brief    Helper function to check if a request is hitting an open row
-   * @details
-   *
-   */
   bool is_row_hit(ReqBuffer::iterator &req) {
     return m_dram->check_rowbuffer_hit(req->final_command, req->addr_vec);
   }
-  /**
-   * @brief    Helper function to check if a request is opening a row
-   * @details
-   *
-   */
   bool is_row_open(ReqBuffer::iterator &req) {
     return m_dram->check_node_open(req->final_command, req->addr_vec);
   }
 
-  /**
-   * @brief
-   * @details
-   *
-   */
   void update_request_stats(ReqBuffer::iterator &req) {
     req->is_stat_updated = true;
 
@@ -722,11 +734,16 @@ private:
                 << ", arrive=" << req.arrive);
           } else {
             // Check if this requests accesses the DRAM or is being forwarded.
-            if (req.type_id == Request::Type::Read) {
+            if (req.type_id == Request::Type::Read &&
+                req.mitigation_type == Request::MitigationType::None &&
+                req.source_id >= 0) {
               // compute running average and max latency for issued read
-              // requests
+              // requests. Internally generated mitigation reads (for example,
+              // Hydra RCT accesses) use source_id == -1 and must not appear in
+              // the demand-read latency distribution.
               num_reads_issued++;
               int latency = req.depart - req.arrive;
+              s_read_latency += latency;
               if (m_log_request_latencies)
                 std::cout << "[Lat (RD): " << latency << "]" << std::endl;
               DEBUG_PRINT("Read latency: " << latency);
@@ -740,16 +757,18 @@ private:
                 DEBUG_PRINT("Overflow detected in latency sum calculation");
               }
               if (latency > s_max_read_latency)
-                s_max_read_latency = latency;
+                s_max_read_latency = latency; // update maximum latency
             }
           }
-          s_read_latency += req.depart - req.arrive;
         }
 
         if (req.callback) {
           // If the request comes from outside (e.g., processor), call its
           // callback
           req.callback(req);
+        }
+        if (req.mitigation_type == Request::MitigationType::RD) {
+          remove_one_metadata_proq_entry(req);
         }
         // Finally, remove this request from the pending queue
         pending.pop_front();
@@ -773,6 +792,7 @@ private:
     }
 
     for (size_t i = 0; i < addr.size(); i++) {
+      // -1 is a wildcard (e.g., bank group for DRFMsb and bank for DRFMab).
       if (req.addr_vec[i] != -1 && addr[i] != -1 &&
           req.addr_vec[i] != addr[i]) {
         return false;
@@ -782,23 +802,37 @@ private:
   }
 
   void prioritize_proq_for_occupancy() {
-    if (m_occupancy_promoted_pro_pending ||
-        blacklist.size() < k_proq_drain_threshold) {
+    if (m_occupancy_promoted_request_pending ||
+        blacklist.size() < m_proq_occupancy_promotion_threshold) {
       return;
     }
 
     bool from_tail = m_drain_proq_from_tail &&
-                     blacklist.size() > k_proq_drain_threshold;
-    const AddrVec_t &target = from_tail ? blacklist.back() : blacklist.front();
-    for (auto it = m_read_buffer.begin(); it != m_read_buffer.end(); ++it) {
-      if (pro_targets_address(*it, target)) {
+                     blacklist.size() > m_proq_occupancy_promotion_threshold;
+    const TrackedPROQEntry target =
+        from_tail ? blacklist.back() : blacklist.front();
+    ReqBuffer& source_buffer = target.type == Request::MitigationType::WR
+                                   ? m_write_buffer
+                                   : m_read_buffer;
+    for (auto it = source_buffer.begin(); it != source_buffer.end(); ++it) {
+      if (request_matches_entry(*it, target)) {
+        // This request was already accepted and counted when it entered the
+        // controller, so move it directly rather than calling priority_send().
         if (!m_priority_buffer.enqueue(*it)) {
           return;
         }
         m_occupancy_promoted_addr = it->addr_vec;
+        m_occupancy_promoted_type = it->mitigation_type;
         m_occupancy_promoted_from_tail = from_tail;
-        m_occupancy_promoted_pro_pending = true;
-        m_read_buffer.remove(it);
+        m_occupancy_promoted_request_pending = true;
+        if (target.type == Request::MitigationType::RD) {
+          s_num_capacity_promotions_rd++;
+        } else if (target.type == Request::MitigationType::WR) {
+          s_num_capacity_promotions_wr++;
+        } else if (target.type == Request::MitigationType::PRO) {
+          s_num_capacity_promotions_pro++;
+        }
+        source_buffer.remove(it);
         return;
       }
     }
@@ -812,7 +846,7 @@ private:
     if (!m_is_write_mode) {
       if ((blacklist.size() >= 10 && contains_drfm()) || not_found_req > 30) {
         not_found_req = 0;
-        return; 
+        return;
       }
       if ((m_write_buffer.size() >
            m_wr_high_watermark * m_write_buffer.max_size) ||
@@ -821,11 +855,12 @@ private:
         DEBUG_PRINT("WRITE MODE");
       }
     } else {
+      // Avoid draining writes while mitigations are blocking reads.
       if ((blacklist.size() >= 10 && contains_drfm()) || not_found_req > 30) {
         not_found_req = 0;
-        m_is_write_mode = false; 
+        m_is_write_mode = false;
         DEBUG_PRINT("READ MODE");
-      } 
+      }
       if ((m_write_buffer.size() <
            m_wr_low_watermark * m_write_buffer.max_size) &&
           m_read_buffer.size() != 0) {
@@ -835,15 +870,46 @@ private:
     }
   };
 
-  int get_num_ready_requests(ReqBuffer &buffer) {
+  int get_num_ready_demand_requests(ReqBuffer &buffer) {
     int count = 0;
     for (auto it = buffer.begin(); it != buffer.end(); ++it) {
-      if ((it->command == m_dram->m_requests("read") || it->command == m_dram->m_requests("write")) 
-      && m_dram->check_ready(it->command, it->addr_vec)) {
+      // Figure 13 measures processor demand only. Hydra and other mechanisms
+      // may place metadata RD/WR requests in these same buffers.
+      if (it->mitigation_type != Request::MitigationType::None) {
+        continue;
+      }
+      // Refresh the prerequisite before testing readiness: when a PRO comes
+      // from the priority buffer, the read/write buffers may not have been
+      // visited by the scheduler in this cycle.
+      const int command =
+          m_dram->get_preq_command(it->final_command, it->addr_vec);
+      if ((command == m_dram->m_commands("RD") ||
+           command == m_dram->m_commands("WR")) &&
+          m_dram->check_ready(command, it->addr_vec)) {
         count++;
       }
     }
     return count;
+  }
+
+  void record_demand_requests_delayed_by_PRO() {
+    const int reads_waiting = get_num_ready_demand_requests(m_read_buffer);
+    const int writes_waiting = get_num_ready_demand_requests(m_write_buffer);
+
+    read_demand_delayed_by_PRO += reads_waiting;
+    write_demand_delayed_by_PRO += writes_waiting;
+    demand_delayed_by_PRO += reads_waiting + writes_waiting;
+
+    max_num_read_demand_delayed_by_PRO =
+        std::max(max_num_read_demand_delayed_by_PRO, reads_waiting);
+    max_num_write_demand_delayed_by_PRO =
+        std::max(max_num_write_demand_delayed_by_PRO, writes_waiting);
+    max_num_demand_delayed_by_PRO = std::max(
+        max_num_demand_delayed_by_PRO, reads_waiting + writes_waiting);
+    num_counted_PROs += 1;
+
+    DEBUG_PRINT("PRO is issued, reads waiting: " << reads_waiting
+        << ", writes waiting: " << writes_waiting);
   }
 
   /**
@@ -856,68 +922,14 @@ private:
     // activating (avoid useless ACTs)
     req_it = m_scheduler->get_best_request(m_active_buffer);
     if (req_it != m_active_buffer.end()) {
+      // no need to check if blacklisted, because goes to an open row
       if (m_dram->check_ready(req_it->command, req_it->addr_vec)) {
         request_found = true;
         DEBUG_PRINT("request found in active buffer");
-        
-
-        ReqBuffer::iterator it2 = m_scheduler->get_best_request_old(m_active_buffer);
-        if (it2 != m_active_buffer.end() && it2->addr_vec != req_it->addr_vec) {
-          DEBUG_PRINT("Request blocked by PRO");
-          increment_proq_waits(it2->addr_vec);
-        }
 
         req_buffer = &m_active_buffer;
       }
     }
-
-    //2.1.2 check if we need to priorty schedule any PROs
-    AddrVec_t addr_exceeding_th = get_first_exceeding_proq_threshold();
-    int m_bank_level = m_dram->m_levels("bank");
-      if (addr_exceeding_th[0] != -1 &&
-          addr_exceeding_th[m_bank_level] != -1) {
-        int m_bank_group_level = m_dram->m_levels("bankgroup");
-        int m_DRFM_req_id = m_dram->m_requests("same-bank-directed-rfm");
-        Request pro(addr_exceeding_th, m_DRFM_req_id);
-        pro.addr_vec[m_bank_group_level] = -1;
-        
-        num_qos_pros += 1;
-        if (!in_queue(pro.addr_vec, m_active_buffer) && !in_queue(pro.addr_vec, m_priority_buffer)) {
-          remove_qos_proq_entry(addr_exceeding_th);
-          bool success = priority_send(pro);
-          if (!success) {
-            DEBUG_PRINT("could not enqueue PRO to address exceeding PROQ threshold");
-          } else {
-            DEBUG_PRINT("Enqueued PRO to address exceeding PROQ threshold in priority queue: "
-                << get_string_addr(pro.addr_vec));
-          }
-          remove_from_read_queue(pro.addr_vec);
-        } else {
-          DEBUG_PRINT("PRO found in active or priority queue");
-        }      
-        
-      } else if (addr_exceeding_th[0] != -1) {
-        int m_bank_group_level = m_dram->m_levels("bankgroup");
-        int m_DRFM_req_id = m_dram->m_requests("directed-rfm");
-        Request pro(addr_exceeding_th, m_DRFM_req_id);
-        pro.addr_vec[m_bank_group_level] = -1;
-        pro.addr_vec[m_bank_level] = -1;
-
-        num_qos_pros += 1;
-        if (!in_queue(pro.addr_vec, m_active_buffer) && !in_queue(pro.addr_vec, m_priority_buffer)) {
-          remove_qos_proq_entry(addr_exceeding_th);
-          bool success = priority_send(pro);
-          if (!success) {
-            DEBUG_PRINT("could not enqueue PRO to address exceeding PROQ threshold");
-          } else {
-            DEBUG_PRINT("Enqueued PRO to address exceeding PROQ threshold in priority queue: "
-                << get_string_addr(pro.addr_vec));
-          }
-          remove_from_read_queue(pro.addr_vec);
-        } else {
-          DEBUG_PRINT("PRO found in active or priority queue");
-        }      
-      }
 
     // 2.2    If no requests can be scheduled from the act buffer, check the
     // rest of the buffers
@@ -932,33 +944,22 @@ private:
         req_it->command =
             m_dram->get_preq_command(req_it->final_command, req_it->addr_vec);
 
+        // check that ready
         request_found = m_dram->check_ready(req_it->command, req_it->addr_vec);
         if (request_found) {
             DEBUG_PRINT("request found in priority queue, queue length "
                 << m_priority_buffer.size());
 
-            if ((req_it->type_id == m_dram->m_requests("same-bank-directed-rfm" ) 
+            // check that request is a PRO
+            if ((req_it->type_id == m_dram->m_requests("same-bank-directed-rfm" )
                   && req_it->command == m_dram->m_commands("DRFMsb")) ||
                 (req_it->type_id == m_dram->m_requests("directed-rfm")
                   && req_it->command == m_dram->m_commands("DRFMab"))) {
-              int reads_waiting = get_num_ready_requests(m_read_buffer);
-              int writes_waiting = get_num_ready_requests(m_write_buffer);
-              rw_delayed_by_PRO += reads_waiting + writes_waiting;
-              if (reads_waiting + writes_waiting > max_num_delayed_by_PRO) {
-                max_num_delayed_by_PRO = reads_waiting + writes_waiting;
-              }
-              num_counted_PROs += 1;
-              DEBUG_PRINT("PRO is issued, reads waiting: " << reads_waiting
-                  << ", writes waiting: " << writes_waiting);
+              record_demand_requests_delayed_by_PRO();
             }
 
-            ReqBuffer::iterator it2 = m_scheduler->get_best_request_old(m_priority_buffer);
-            if (it2 != m_priority_buffer.end() && it2->addr_vec != req_it->addr_vec) {
-              DEBUG_PRINT("Request blocked by PRO");
-              increment_proq_waits(it2->addr_vec);
-            }
           }
-          
+
         if (!request_found & (m_priority_buffer.size() != 0)) {
           return false;
         }
@@ -975,39 +976,20 @@ private:
         req_it = m_scheduler->get_best_request(buffer);
 
         if (req_it != buffer.end()) {
+          // check that ready and not blacklisted
           request_found =
             (m_dram->check_ready(req_it->command, req_it->addr_vec) &&
-            (!checkBlacklisted(req_it->addr_vec) ||
+            (!checkBlacklisted(*req_it) ||
             req_it->type_id == m_dram->m_requests("same-bank-directed-rfm") ||
             req_it->type_id == m_dram->m_requests("directed-rfm") ||
             is_to_open_row(req_it)));
-        
           if (request_found) {
-    
-            ReqBuffer::iterator it2 = m_scheduler->get_best_request_old(buffer);
-            if (it2 != buffer.end() && it2->addr_vec != req_it->addr_vec) {
-              DEBUG_PRINT("Request blocked by PRO addr1: "
-                  << get_string_addr(it2->addr_vec)
-                  << ", addr2: " << get_string_addr(req_it->addr_vec)
-                  << ", type1: " << it2->type_id
-                  << ", type2: " << req_it->type_id);
-              increment_proq_waits(it2->addr_vec);
-            } 
-
-
-            if ((req_it->type_id == m_dram->m_requests("same-bank-directed-rfm" ) 
+            //count request that are delayed by PRO if we are issueing a PRO:
+            if ((req_it->type_id == m_dram->m_requests("same-bank-directed-rfm" )
                   && req_it->command == m_dram->m_commands("DRFMsb")) ||
                 (req_it->type_id == m_dram->m_requests("directed-rfm")
                   && req_it->command == m_dram->m_commands("DRFMab"))) {
-              int reads_waiting = get_num_ready_requests(m_read_buffer);
-              int writes_waiting = get_num_ready_requests(m_write_buffer);
-              rw_delayed_by_PRO += reads_waiting + writes_waiting;
-              if (reads_waiting + writes_waiting > max_num_delayed_by_PRO) {
-                max_num_delayed_by_PRO = reads_waiting + writes_waiting;
-              }
-              num_counted_PROs += 1;
-              DEBUG_PRINT("PRO is issued, reads waiting: " << reads_waiting
-                  << ", writes waiting: " << writes_waiting);
+              record_demand_requests_delayed_by_PRO();
             }
           }
           req_buffer = &buffer;
@@ -1040,8 +1022,10 @@ private:
       }
     }
     if (!request_found) {
+      // keep track of the fact that we have not found a request
       not_found_req += 1;
     } else {
+      // we have found a request, reset the counter
       not_found_req = 0;
     }
     return request_found;
@@ -1056,7 +1040,21 @@ private:
     s_write_queue_len_avg = (float)s_write_queue_len / (float)m_clk;
     s_priority_queue_len_avg = (float)s_priority_queue_len / (float)m_clk;
     s_avg_blacklist_size = (float)s_blacklist_len / (float)m_clk;
-      avg_num_delayed_by_PRO = (float)rw_delayed_by_PRO / (float)num_counted_PROs;
+    avg_num_demand_delayed_by_PRO =
+        num_counted_PROs == 0
+            ? 0.0F
+            : static_cast<float>(demand_delayed_by_PRO) /
+                  static_cast<float>(num_counted_PROs);
+    avg_num_read_demand_delayed_by_PRO =
+        num_counted_PROs == 0
+            ? 0.0F
+            : static_cast<float>(read_demand_delayed_by_PRO) /
+                  static_cast<float>(num_counted_PROs);
+    avg_num_write_demand_delayed_by_PRO =
+        num_counted_PROs == 0
+            ? 0.0F
+            : static_cast<float>(write_demand_delayed_by_PRO) /
+                  static_cast<float>(num_counted_PROs);
     return;
   }
 };

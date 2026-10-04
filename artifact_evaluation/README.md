@@ -4,17 +4,11 @@ The top-level `../reproduce.py` is the recommended interface. This directory
 contains the underlying experiment matrix, job generation, semantic validation,
 and one launcher per experiment class.
 
-The evaluator-facing hosted connection profile is `ae_cluster_config.yaml`.
-This path requires an SSH private key supplied separately through the
-artifact-evaluation channel; it is only for evaluators authorized to use our
-SAFARI infrastructure. Credentials are read from
-`../credentials/ae_cluster_key`, which is deliberately excluded from version
-control. `../setup_ae.sh` creates that slot when needed, uploads the local
-GitHub checkout into the initially empty remote
-`/mnt/galactica/aevaluator2/MORDOR`, checks the remote environment, and builds
-the simulator. Hosted evaluator commands run from that directory. Re-running
-setup updates source files but preserves
-`/mnt/galactica/aevaluator2/MORDOR/artifact_workspace`.
+The hosted profile is `ae_cluster_config.yaml`. It requires the evaluator key
+provided separately. Credentials are read from the ignored
+`../credentials/ae_cluster_key`. `../setup_ae.sh` uploads the checkout, checks
+the remote environment, and builds the simulator without replacing existing
+traces or results.
 
 Two native execution profiles are also provided:
 
@@ -24,8 +18,7 @@ Two native execution profiles are also provided:
 - `local_config.yaml` runs the same jobs serially on one Linux machine and
   limits compiler parallelism to two jobs by default.
 
-Neither native profile requires the SAFARI SSH key or access to our
-infrastructure.
+Neither native profile requires the hosted-cluster key or access.
 
 Copy the selected template to the ignored `execution_config.yaml` before
 customizing it. The top-level README contains complete setup and launch
@@ -46,24 +39,25 @@ Available classes:
 
 - `main`: baseline, Priority, MORDOR, and insecure PRT-125 runs.
 - `multi-prt`: PRT 250, 500, and 1000 runs.
-- `latency`: the paper's `429.mcf` request-latency runs.
+- `latency`: the five high-PRO, single-core, 100M-instruction runs used by Figure 8.
 - `bank-count`: 8-bank and 32-bank sensitivity.
-- `blast-radius`: BRC-1 blast radii 1, 2, and 8.
-- `scheduling`: closed-row caps 4 and 16.
-
+- `blast-radius`: BRC=2 blast radii 2 and 4; radius 1 reuses `main`.
+- `drfm-address-setup`: NRH 122 MORDOR with 47.5 ns additional DRFM latency.
 Every class evaluates ABACuS alongside Hydra, PARA, CoMeT, DAPPER, and
 Graphene. The aggregate classes use the single 55-trace definition in
 `common.py`.
 
-Figure 6 alone requires the `main` and `multi-prt` classes. After those
-classes finish, run
+Figure 6 alone requires the `main` class. After it finishes, run
 `.venv/bin/python reproduce.py figures -- --figures 6` from the repository
 root to build the reduced input bundle and emit only the Figure 6 PNG.
 
 Final outputs use semantic directories such as `main/priority/PARA`,
 `main/mordor/PARA`, and `main/insecure/PARA`; filenames are simply
 `<trace>_output.yaml`. Other classes follow the same policy-first convention
-under `prt_sweep`, `latency`, `bank_count`, `blast_radius`, and `row_policy`.
+under `prt_sweep`, `latency`, `bank_count`, `blast_radius`, and
+`drfm_address_setup`. Every generated job also has a sibling `_manifest.yaml`
+recording the nominal/effective NRH, BRC, blast radius, core/instruction count,
+scheduler, and whether DRFM address-setup latency is enabled.
 
 For direct operation inside a prepared cluster checkout:
 

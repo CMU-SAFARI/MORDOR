@@ -42,30 +42,27 @@ FIGURE_SPECS = {
     2: "priority_vs_insecure_overheads",
     3: "mordor_mechanism_overview",
     4: "pros_causing_other_pros",
-    5: "processor_side_energy",
-    6: "overheads_across_prt",
-    7: "top25_pro_intensive_speedup",
-    8: "priority_mordor_insecure_cycle_overhead",
-    9: "bank_count_cycle_overhead",
-    10: "blast_radius_reduction",
-    11: "row_policy_reduction",
-    12: "latency_percentiles",
-    13: "requests_delayed_by_a_pro",
-    14: "area_vs_execution_time_overhead",
+    5: "speedup_energy_reduction_across_nrh",
+    6: "top25_per_trace_speedup",
+    7: "processor_side_energy",
+    8: "latency_percentiles",
+    9: "requests_delayed_by_a_pro",
+    10: "area_vs_performance_overhead",
+    11: "priority_mordor_insecure_overhead",
+    12: "bank_count_overhead",
+    13: "blast_radius_reduction",
+    14: "drfm_address_setup_latency",
 }
 
 CONTEXT_SOURCES = (
     FIGURE_CODE_DIR / "context.py",
     FIGURE_CODE_DIR / "shared_results.py",
 )
-FIGURE6_CONTEXT_SOURCE = FIGURE_CODE_DIR / "figure_06_context.py"
 FIGURE_SOURCES = {
     number: FIGURE_CODE_DIR / f"figure_{number:02d}.py"
     for number in (2, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14)
 }
-PRE_FIGURE_SOURCES = {
-    13: (FIGURE_CODE_DIR / "shared_results.py",),
-}
+PRE_FIGURE_SOURCES = {}
 
 @dataclass(frozen=True)
 class ManifestEntry:
@@ -263,7 +260,7 @@ def build_consolidated_results(
             baseline,
             building / "baseline" / "no_mitigation",
             paper_traces,
-            "2,6,8,9,10,14",
+            "2,10,11,12,14",
             source_root,
             manifest,
         )
@@ -274,12 +271,10 @@ def build_consolidated_results(
             "mordor": "mordor",
             "insecure": "insecure",
         }
-        if figure6_only:
-            prt125_roots.pop("insecure")
         prt125_figures = {
-            "priority": "2,5,6,7,8,9,10,11,13,14",
-            "mordor": "5,6,7,8,9,10,11,13,14",
-            "insecure": "2,8",
+            "priority": "2,5,6,7,9,10,11,12,13,14",
+            "mordor": "5,6,7,9,10,11,12,13,14",
+            "insecure": "2,11",
         }
         for label, variant in prt125_roots.items():
             for mechanism in MECHANISMS:
@@ -302,7 +297,25 @@ def build_consolidated_results(
                     manifest,
                 )
 
-        # Figure 6 PRT sweep.
+        if figure6_only:
+            with (building / "manifest.csv").open("w", newline="") as stream:
+                writer = csv.DictWriter(
+                    stream,
+                    fieldnames=["figures", "destination", "source", "trace", "size_bytes"],
+                )
+                writer.writeheader()
+                for entry in manifest:
+                    writer.writerow(entry.__dict__)
+            (building / "README.md").write_text(
+                "# Figure 6 result bundle\n\n"
+                "This compact bundle contains the no-mitigation baseline and "
+                "the PRT-125 main results. Figure 6 uses the Priority/MORDOR "
+                "pairs to rank and plot the 25 most PRO-intensive workloads.\n"
+            )
+            building.rename(destination)
+            return
+
+        # Figure 5 NRH sweep.
         for prt in (250, 500, 1000):
             for mechanism in MECHANISMS:
                 priority = collect_results(
@@ -329,7 +342,7 @@ def build_consolidated_results(
                     / "priority"
                     / mechanism,
                     paper_traces,
-                    "6",
+                    "5",
                     source_root,
                     manifest,
                 )
@@ -358,37 +371,12 @@ def build_consolidated_results(
                     / "mordor"
                     / mechanism,
                     paper_traces,
-                    "6",
+                    "5",
                     source_root,
                     manifest,
                 )
 
-        if figure6_only:
-            with (building / "manifest.csv").open("w", newline="") as stream:
-                writer = csv.DictWriter(
-                    stream,
-                    fieldnames=[
-                        "figures",
-                        "destination",
-                        "source",
-                        "trace",
-                        "size_bytes",
-                    ],
-                )
-                writer.writeheader()
-                for entry in manifest:
-                    writer.writerow(entry.__dict__)
-            (building / "README.md").write_text(
-                "# Figure 6 result bundle\n\n"
-                "This compact bundle contains the canonical 55-workload "
-                "inputs required to reproduce Figure 6: the no-mitigation "
-                "baseline, PRT-125 main results, and Priority/MORDOR results "
-                "for PRT 250, 500, and 1000.\n"
-            )
-            building.rename(destination)
-            return
-
-        # Figure 9 bank-count study (the 16-bank inputs are the PRT-125 tree).
+        # Figure 12 bank-count study (16-bank inputs reuse the PRT-125 tree).
         for banks in (8, 32):
             bank_root = (
                 source_root
@@ -410,7 +398,7 @@ def build_consolidated_results(
                 / f"banks_{banks}"
                 / "baseline",
                 paper_traces,
-                "9",
+                "12",
                 source_root,
                 manifest,
             )
@@ -434,25 +422,21 @@ def build_consolidated_results(
                         / variant
                         / mechanism,
                         paper_traces,
-                        "9",
+                        "12",
                         source_root,
                         manifest,
                     )
 
-        # Figure 10 uses one shared available cohort across every blast-radius
+        # Figure 13 uses one shared cohort across every blast-radius
         # configuration. Copy exactly that cohort, not partially unused files.
         blast_values: dict[tuple[int, str, str], dict[str, Path]] = {}
-        for radius in (1, 2, 8):
+        for radius in (1, 2, 4):
             for mechanism in MECHANISMS:
                 for variant in ("priority", "mordor"):
-                    source = (
-                        source_root
-                        / "blast_radius"
-                        / "brc_1"
-                        / f"radius_{radius}"
-                        / variant
-                        / mechanism
-                    )
+                    source = ((source_root / "main" / variant / mechanism)
+                              if radius == 1 else
+                              (source_root / "blast_radius" / "brc_2"
+                               / f"radius_{radius}" / variant / mechanism))
                     blast_values[(radius, mechanism, variant)] = (
                         collect_results(
                             [source], result_pattern, paper_trace_set
@@ -471,57 +455,29 @@ def build_consolidated_results(
                 values,
                 building
                 / "blast_radius"
-                / "brc_1"
+                / "brc_2"
                 / f"radius_{radius}"
                 / variant
                 / mechanism,
                 blast_traces,
-                "10",
+                "13",
                 source_root,
                 manifest,
             )
 
-        # Figure 11 row-policy caps. The open-row inputs reuse PRT 125.
-        for cap in (4, 16):
-            for mechanism in MECHANISMS:
-                for variant in ("priority", "mordor"):
-                    source = (
-                        source_root
-                        / "row_policy"
-                        / f"cap_{cap}"
-                        / variant
-                        / mechanism
-                    )
-                    values = collect_results(
-                        [source], result_pattern, paper_trace_set
-                    )
-                    require_traces(
-                        f"Cap {cap} / {mechanism} / {variant}",
-                        values,
-                        paper_traces,
-                    )
-                    materialize_results(
-                        values,
-                        building
-                        / "row_policy"
-                        / f"cap_{cap}"
-                        / variant
-                        / mechanism,
-                        paper_traces,
-                        "11",
-                        source_root,
-                        manifest,
-                    )
-
-        # Figure 12 pools the selected latency traces.
+        # Figure 8 averages five high-PRO workload percentile curves equally.
         latency_root = source_root / "latency"
-        for trace in paper_traces:
+        latency_traces = [
+            "429.mcf", "470.lbm", "random_10.trace", "stream_10.trace",
+            "549.fotonik3d",
+        ]
+        for trace in latency_traces:
             latency_files = sorted(
                 latency_root.glob(f"*/*/{trace}_latency.txt")
             )
             if len(latency_files) != 12:
                 raise ValueError(
-                    f"Figure 12 requires 12 latency files for {trace}; "
+                    f"Figure 8 requires 12 latency files for {trace}; "
                     f"found {len(latency_files)}"
                 )
             for source in latency_files:
@@ -532,13 +488,29 @@ def build_consolidated_results(
                 shutil.copy2(source, target)
                 manifest.append(
                     ManifestEntry(
-                        figures="12",
+                        figures="8",
                         destination=str(target.relative_to(building)),
                         source=str(source.relative_to(source_root)),
                         trace=trace,
                         size_bytes=target.stat().st_size,
                     )
                 )
+
+        # Figure 14: MORDOR with explicit targeted-DRFM address setup.
+        for mechanism in MECHANISMS:
+            source = source_root / "drfm_address_setup" / "mordor" / mechanism
+            values = collect_results([source], result_pattern, paper_trace_set)
+            require_traces(
+                f"DRFM address setup / {mechanism}", values, paper_traces
+            )
+            materialize_results(
+                values,
+                building / "drfm_address_setup" / "mordor" / mechanism,
+                paper_traces,
+                "14",
+                source_root,
+                manifest,
+            )
 
         # Write the manifest and a concise description before publishing.
         with (building / "manifest.csv").open("w", newline="") as stream:
@@ -570,12 +542,12 @@ The selected cohort contains {len(paper_traces)} trace(s):
 - `main/insecure`: read-queue scheduling without blacklisting.
 - `prt_sweep/prt_*/priority`: Priority results for PRT 250/500/1000.
 - `prt_sweep/prt_*/mordor`: MORDOR results for PRT 250/500/1000.
-- `bank_count`: Figure 9 inputs.
-- `blast_radius`: Figure 10 inputs.
-- `row_policy`: Figure 11 inputs.
-- `latency`: Figure 12 inputs for the selected trace cohort.
+- `bank_count`: Figure 12 inputs.
+- `blast_radius`: Figure 13 inputs (BRC=2, radii 1/2/4).
+- `latency`: Figure 8 inputs for the five high-PRO workloads.
+- `drfm_address_setup`: Figure 14 inputs.
 
-Figure 10 currently uses {len(blast_traces)}/{len(paper_traces)} traces in
+Figure 13 uses {len(blast_traces)}/{len(paper_traces)} traces in
 every bar. Excluded uniformly: {", ".join(excluded_blast) if excluded_blast else "none"}.
 
 `manifest.csv` records the source and paper-figure consumers of every file.
@@ -642,12 +614,7 @@ def execute_figure_sources(
     plt.show = lambda *args, **kwargs: None
     try:
         os.chdir(results_dir)
-        context_sources = (
-            (CONTEXT_SOURCES[0], FIGURE6_CONTEXT_SOURCE)
-            if selected_figures == {6}
-            else CONTEXT_SOURCES
-        )
-        for source_path in context_sources:
+        for source_path in CONTEXT_SOURCES:
             execute_silently(source_path, namespace)
             if source_path == CONTEXT_SOURCES[0]:
                 namespace["PAPER_TRACES"] = list(selected_traces)
@@ -697,15 +664,15 @@ def write_figure_index(figures_dir: Path, selected_figures: set[int]) -> None:
         )
     else:
         generated_description = (
-            "Figure 6 is regenerated from its compact `paper_results` bundle "
-            "using the canonical Python plotting source."
+            "The selected figures are regenerated from `paper_results` using "
+            "the canonical Python plotting sources."
         )
     lines.extend(
         [
             "",
             generated_description,
-            "Conceptual Figures 1, 3, and 4 are intentionally not bundled or "
-            "regenerated because the paper is not yet public.",
+            "Conceptual Figures 1, 3, and 4 are not regenerated because they "
+            "do not depend on experimental output.",
             "",
         ]
     )
@@ -719,11 +686,6 @@ def main() -> None:
     figures_dir = args.figures_dir.resolve()
     selected_figures = set(args.figures)
     all_figures = set(FIGURE_SOURCES)
-    if selected_figures not in (all_figures, {6}):
-        raise SystemExit(
-            "Reduced result-bundle generation currently supports only "
-            "--figures 6; omit --figures to generate all data-derived figures."
-        )
     canonical_traces = load_paper_traces()
     if args.traces:
         requested = set(args.traces)

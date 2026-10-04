@@ -5,8 +5,9 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from paper_config import BLAST_RADII, LATENCY_TRACES, MECHANISMS
 
-MECHANISMS = ["Hydra", "PARA", "comet", "DAPPER", "graphene", "abacus"]
+
 TRACES = [
     "random_10.trace", "stream_10.trace", "401.bzip2", "403.gcc",
     "429.mcf", "435.gromacs", "436.cactusADM",
@@ -24,19 +25,12 @@ TRACES = [
     "ycsb_dserver", "ycsb_eserver",
 ]
 
-# The paper's latency figure uses only 429.mcf.  Keep this cohort separate from
-# TRACES so the aggregate plots always use exactly the canonical 55 traces.
-LATENCY_TRACES = ["429.mcf"]
-
-# Blast radius is modeled directly at BRC=1 for comparison with prior work.
-BLAST_BRC = 1
-BLAST_RADII = [1, 2, 8]
-
 if len(TRACES) != 55 or len(set(TRACES)) != 55:
     raise RuntimeError("TRACES must contain exactly 55 unique paper traces")
 
 EXPERIMENT_CLASSES = [
-    "main", "multi-prt", "latency", "bank-count", "blast-radius", "scheduling",
+    "main", "multi-prt", "latency", "bank-count", "blast-radius",
+    "drfm-address-setup",
 ]
 
 

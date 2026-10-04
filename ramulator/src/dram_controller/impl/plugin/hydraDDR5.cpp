@@ -26,14 +26,14 @@ class HydraDDR5 : public IControllerPlugin, public Implementation {
   RAMULATOR_REGISTER_IMPLEMENTATION(IControllerPlugin, HydraDDR5, "HydraDDR5", "Hydra with DRFM")
 
   private:
-    std::deque<Request> m_memory_buffer;  
+    std::deque<Request> m_memory_buffer;
 
     IDRAM* m_dram = nullptr;
     ITranslation* m_translation = nullptr;
     IAddrMapper* m_addr_mapper = nullptr;
 
-    // added for send call: 
-    IMemorySystem* m_system = nullptr; 
+    // added for send call:
+    IMemorySystem* m_system = nullptr;
 
     std::vector<int> m_rank_REF_counter;
 
@@ -45,7 +45,7 @@ class HydraDDR5 : public IControllerPlugin, public Implementation {
     int m_clk = -1;
 
     // input parameters
-    std::string m_queue_type = "priority"; 
+    std::string m_queue_type = "priority";
     bool m_insecure_read_queue = false;
     int m_tracking_threshold = -1;
     int m_group_threshold = -1;
@@ -87,7 +87,7 @@ class HydraDDR5 : public IControllerPlugin, public Implementation {
     int m_rct_per_cl = -1;
     int m_group_rct_cl_size = -1;
 
-    // per bank GCT, 
+    // per bank GCT,
     // the first index is the flat bank id
     // the second index is the row group id
     // each entry has a group counter and a flag indicating if the group counter has beed initialized
@@ -128,12 +128,12 @@ class HydraDDR5 : public IControllerPlugin, public Implementation {
     int s_rcc_check = 0;
     int s_rct_check = 0;
     int s_rctct_check = 0;
-    
+
 
     bool m_is_debug;
 
   public:
-    void init() override { 
+    void init() override {
       m_tracking_threshold = param<int>("hydra_tracking_threshold").required();
       m_group_threshold = param<int>("hydra_group_threshold").required();
       m_row_group_size = param<int>("hydra_row_group_size").default_val(128);
@@ -141,7 +141,7 @@ class HydraDDR5 : public IControllerPlugin, public Implementation {
       m_rcc_num_per_rank = param<int>("hydra_rcc_num_per_rank").default_val(4096);  //8k total, this is per rank
       m_rcc_policy = param<std::string>("hydra_rcc_policy").default_val("RANDOM");
       m_is_debug = param<bool>("debug").default_val(false);
-      m_queue_type = param<std::string>("queue_type").default_val("priority"); 
+      m_queue_type = param<std::string>("queue_type").default_val("priority");
       m_insecure_read_queue = param<bool>("insecure_read_queue")
                                   .desc("Send read-queue DRFMs without blacklisting their target rows.")
                                   .default_val(false);
@@ -172,11 +172,12 @@ class HydraDDR5 : public IControllerPlugin, public Implementation {
       m_col_level = m_dram->m_levels("column");
 
       m_num_ranks = m_dram->get_level_size("rank");
-      m_num_banks_per_rank = m_dram->get_level_size("bankgroup") == -1 ? 
-                             m_dram->get_level_size("bank") : 
+      m_num_banks_per_rank = m_dram->get_level_size("bankgroup") == -1 ?
+                             m_dram->get_level_size("bank") :
                              m_dram->get_level_size("bankgroup") * m_dram->get_level_size("bank");
       m_num_rows_per_bank = m_dram->get_level_size("row");
-      m_num_cls = m_dram->get_level_size("column") / 8;  // number of chache lines in a column
+      // Eight DRAM columns form one 64-byte cache line.
+      m_num_cls = m_dram->get_level_size("column") / 8;
 
       m_row_address_bits = log2(m_num_rows_per_bank);
       m_bank_address_bits = log2(m_num_banks_per_rank);
@@ -214,7 +215,7 @@ class HydraDDR5 : public IControllerPlugin, public Implementation {
         }
         row_count_cache.push_back(rcc_rank);
       }
-      
+
       for (int i = 0; i < m_num_ranks * m_num_banks_per_rank; i++) {
         std::unordered_map<Addr_t, int> row_count_table_bank;
         row_count_table.push_back(row_count_table_bank);
@@ -301,15 +302,16 @@ class HydraDDR5 : public IControllerPlugin, public Implementation {
 
       // check if there are previously rejected requests to issue from the read queue buffer
       if (!m_memory_buffer.empty()) {
-        Request next = m_memory_buffer.front(); 
-        m_memory_buffer.pop_front(); 
+        Request next = m_memory_buffer.front();
+        m_memory_buffer.pop_front();
         bool accepted = false;
         if (m_queue_type == "priority" && next.type_id == m_DRFM_req_id) {
+          // priority send previously rejected DRFM requests in priority mode
           accepted = m_ctrl->priority_send(next);
         } else {
-          accepted = m_ctrl->send(next); 
+          accepted = m_ctrl->send(next);
         }
-        if (!accepted) m_memory_buffer.push_front(next); 
+        if (!accepted) m_memory_buffer.push_front(next);
       } else if (request_found){
         if (m_dram->m_command_meta(req_it->command).is_opening && m_dram->m_command_scopes(req_it->command) == m_row_level){
           int flat_bank_id = req_it->addr_vec[m_bank_level];
@@ -318,13 +320,13 @@ class HydraDDR5 : public IControllerPlugin, public Implementation {
             accumulated_dimension *= m_dram->m_organization.count[i + 1];
             flat_bank_id += req_it->addr_vec[i] * accumulated_dimension;
           }
-          
+
           uint rank_id = req_it->addr_vec[m_rank_level];
           uint bank_id = flat_bank_id % m_num_banks_per_rank;
           uint row_id = req_it->addr_vec[m_row_level];
           uint gct_index = row_id >> (m_row_address_bits - m_gct_index_bits); // get most significant bits
           uint rcc_index = row_id & ((1 << m_rcc_index_bits) - 1); // get least significant bits
-          uint rcc_tag = row_id >> (m_row_address_bits - m_rcc_tag_row_bits) // most significant bits of row_id 
+          uint rcc_tag = row_id >> (m_row_address_bits - m_rcc_tag_row_bits) // most significant bits of row_id
                           | bank_id << m_rcc_tag_row_bits; // bank_id
 
           if (m_is_debug) {
@@ -356,21 +358,23 @@ class HydraDDR5 : public IControllerPlugin, public Implementation {
               if (m_is_debug) {
                 std::cout << "Hydra: RCT_count_table above threshold, issue DRFM, reset counter" << std::endl;
               }
+              // issue DRFM
               Request drfm_req(req_it->addr_vec, m_DRFM_req_id);
-              drfm_req.addr_vec[m_bank_group_level] = -1; 
+              drfm_req.addr_vec[m_bank_group_level] = -1;
 
               if (m_queue_type == "read") {
+                // blacklist the address until DRFM request complete
                 if (!m_insecure_read_queue) {
                   m_ctrl->addToBlacklist(drfm_req, false);
                 }
-                bool accepted = m_ctrl->send(drfm_req); 
-                if (!accepted) m_memory_buffer.push_back(drfm_req); 
+                bool accepted = m_ctrl->send(drfm_req);
+                if (!accepted) m_memory_buffer.push_back(drfm_req);
               } else {
                 bool accepted = m_ctrl->priority_send(drfm_req);
-                if (!accepted) m_memory_buffer.push_back(drfm_req); 
+                if (!accepted) m_memory_buffer.push_back(drfm_req);
               }
               s_num_drfm_rct++;
-              
+
               // reset rcc
               rct_count_table[flat_bank_id].erase(row_id);
             } else {
@@ -394,7 +398,7 @@ class HydraDDR5 : public IControllerPlugin, public Implementation {
           if (group_count_table[flat_bank_id][gct_index].group_count >= m_group_threshold){
             if (m_is_debug) {
               std::cout << "Hydra: Checking GCT" << std::endl;
-              std::cout << "Hydra: GCT above threshold " 
+              std::cout << "Hydra: GCT above threshold "
                         << group_count_table[flat_bank_id][gct_index].group_count << std::endl;
             }
 
@@ -421,15 +425,19 @@ class HydraDDR5 : public IControllerPlugin, public Implementation {
                 rct_init_addr_vec[m_row_level] = init_row_col_id.first;
                 rct_init_addr_vec[m_col_level] = init_row_col_id.second;
                 Request rct_init_req(rct_init_addr_vec, m_WR_req_id);
-                
+
                 if (m_queue_type == "read") {
-                  bool accepted = m_ctrl->send(rct_init_req); 
+                  if (!m_insecure_read_queue) {
+                    rct_init_req.mitigation_type = Request::MitigationType::WR;
+                  }
+                  bool accepted = m_ctrl->send(rct_init_req);
                   if (!accepted) m_memory_buffer.push_back(rct_init_req);
                 } else {
                   bool accepted = m_ctrl->priority_send(rct_init_req);
                   if (!accepted) m_memory_buffer.push_back(rct_init_req);
                 }
-                
+                s_num_write_req++;
+
                 if (m_is_debug) {
                   std::cout << "Hydra: Group initializing, generating write request to DRAM for RCT" << std::endl
                             << "        rct_bank: " << flat_bank_id << std::endl
@@ -478,11 +486,15 @@ class HydraDDR5 : public IControllerPlugin, public Implementation {
                 evicted_entry_addr_vec[m_row_level] = evicted_row_col_id.first;
                 evicted_entry_addr_vec[m_col_level] = evicted_row_col_id.second;
                 Request rct_write_req(evicted_entry_addr_vec, m_WR_req_id);
-                
+
                 s_num_eviction++;
+                s_num_write_req++;
                 if (m_queue_type == "read") {
-                  bool accepted = m_ctrl->send(rct_write_req); 
-                  if (!accepted) m_memory_buffer.push_back(rct_write_req); 
+                  if (!m_insecure_read_queue) {
+                    rct_write_req.mitigation_type = Request::MitigationType::WR;
+                  }
+                  bool accepted = m_ctrl->send(rct_write_req);
+                  if (!accepted) m_memory_buffer.push_back(rct_write_req);
                 } else {
                   bool accepted = m_ctrl->priority_send(rct_write_req);
                   if (!accepted) m_memory_buffer.push_back(rct_write_req);
@@ -514,9 +526,13 @@ class HydraDDR5 : public IControllerPlugin, public Implementation {
               rct_read_addr_vec[m_col_level] = row_col_id.second;
 
               Request rct_read_req(rct_read_addr_vec, m_RD_req_id);
+              s_num_read_req++;
               if (m_queue_type == "read") {
-                  bool accepted = m_ctrl->send(rct_read_req); 
-                  if (!accepted) m_memory_buffer.push_back(rct_read_req); 
+                  if (!m_insecure_read_queue) {
+                    rct_read_req.mitigation_type = Request::MitigationType::RD;
+                  }
+                  bool accepted = m_ctrl->send(rct_read_req);
+                  if (!accepted) m_memory_buffer.push_back(rct_read_req);
                 } else {
                   bool accepted = m_ctrl->priority_send(rct_read_req);
                   if (!accepted) m_memory_buffer.push_back(rct_read_req);
@@ -526,7 +542,7 @@ class HydraDDR5 : public IControllerPlugin, public Implementation {
               // insert new entry and increment rcc
               row_count_table[flat_bank_id][row_id]++;
               row_count_cache[rank_id][rcc_index][rcc_tag] = row_count_table[flat_bank_id][row_id];
-              
+
               if (m_is_debug) {
                 std::cout << "Hydra: Generating read request to DRAM for RCT" << std::endl
                           << "        rct_bank: " << flat_bank_id << std::endl
@@ -554,14 +570,15 @@ class HydraDDR5 : public IControllerPlugin, public Implementation {
               }
               // issue DRFM
               Request drfm_req(req_it->addr_vec, m_DRFM_req_id);
-              drfm_req.addr_vec[m_bank_group_level] = -1; 
-              
+              drfm_req.addr_vec[m_bank_group_level] = -1;
+
               if (m_queue_type == "read") {
+                // blacklist the address until DRFM request complete
                 if (!m_insecure_read_queue) {
                   m_ctrl->addToBlacklist(drfm_req, false);
                 }
-                bool accepted = m_ctrl->send(drfm_req); 
-                if (!accepted) m_memory_buffer.push_back(drfm_req); 
+                bool accepted = m_ctrl->send(drfm_req);
+                if (!accepted) m_memory_buffer.push_back(drfm_req);
               } else {
                 bool accepted = m_ctrl->priority_send(drfm_req);
                 if (!accepted) m_memory_buffer.push_back(drfm_req);

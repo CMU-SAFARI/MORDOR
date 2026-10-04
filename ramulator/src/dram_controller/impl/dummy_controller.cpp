@@ -38,10 +38,6 @@ class DummyController final : public IDRAMController, public Implementation {
 
     void addToBlacklist(Request& req, bool ab) override {}
     bool checkBlacklisted(AddrVec_t& address) override {return false;}
-    void increment_proq_waits(AddrVec_t addr_vec) override {}
-    int get_proq_waits(AddrVec_t addr_vec) override {
-      return -1;
-    }
   };
 
 }   // namespace Ramulator

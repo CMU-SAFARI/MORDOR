@@ -9,7 +9,14 @@
 
 namespace Ramulator {
 
-struct Request { 
+struct Request {
+  enum class MitigationType {
+    None,
+    RD,
+    WR,
+    PRO,
+  };
+
   Addr_t    addr = -1;
   AddrVec_t addr_vec {};
 
@@ -25,6 +32,7 @@ struct Request {
 
   int type_id = -1;    // An identifier for the type of the request
   int source_id = -1;  // An identifier for where the request is coming from (e.g., which core)
+  MitigationType mitigation_type = MitigationType::None;
 
   int command = -1;          // The command that need to be issued to progress the request
   int final_command = -1;    // The final command that is needed to finish the request
@@ -35,6 +43,12 @@ struct Request {
 
   Clk_t proq_enc = -1;  // Clock cycle when the request is placed in the PROQ
   Clk_t proq_dec = -1;  // Clock cycle when the request is removed from the PROQ
+
+  // Optional controller-side latency attribution. These fields travel with a
+  // request as it moves between controller buffers and do not affect
+  // scheduling in controllers that do not use them.
+  unsigned long long diagnostic_blacklist_blocked_cycles = 0;
+  unsigned long long diagnostic_ready_wait_cycles = 0;
 
   std::array<int, 4> scratchpad = { 0 };    // A scratchpad for the request
 

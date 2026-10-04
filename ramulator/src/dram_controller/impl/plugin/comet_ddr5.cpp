@@ -51,10 +51,15 @@ private:
   bool conservative = false;
   bool misuse_refresh = true;
 
-  std::vector<std::deque<bool>> misuse_bits;
-  int misuse_history_length = 256;
+  std::vector<std::deque<bool>> misuse_bits; // per bank misuse bits
+  int misuse_history_length = 256;           // ACTs
   float misuse_threshold = 0.5;
 
+  // per bank activation count table
+  // indexed using flattened <rank id, bank id>
+  // e.g., if rank 0, bank 4, index is 4
+  // if rank 1, bank 5, index is 16 (assuming 16 banks/rank) + 5
+  // spillover counter per bank
 
   std::vector<std::vector<std::unordered_map<int, int>>> activation_count_table;
   std::vector<std::unordered_map<int, int>> aggressor_cache;
@@ -66,7 +71,7 @@ private:
   std::unordered_map<int, HashFunction> getHashFunctions(uint16_t m,
                                                          uint16_t k) {
     std::unordered_map<int, HashFunction> hashFunctions;
-    std::mt19937 gen(100);
+    std::mt19937 gen(100); // Use a fixed seed value for deterministic results
     std::uniform_int_distribution<uint16_t> shiftDist(0, 15);
     std::set<uint16_t> shifts;
     for (uint16_t i = 0; i < k; ++i) {
@@ -80,6 +85,7 @@ private:
       };
     }
     if (debug) {
+      // print the contents of the hashFunctions
       for (const auto &hashFunction : hashFunctions) {
         std::cout << "Hash function: " << hashFunction.first << " ";
         std::cout << "Hash: " << hashFunction.second(123) << std::endl;
@@ -96,8 +102,11 @@ public:
     no_hashes = param<int>("no_hashes").required();
     cache_size = param<int>("rat_size").required();
     m_activation_threshold =
-        param<int>("activation_threshold").required();
-    m_reset_period_ns = 21000000;
+        param<int>("activation_threshold").required(); // this is tRH
+    // CoMeT selects k=3, so its reset period is tREFW/k. Our DDR5
+    // configuration uses a 32 ms refresh window.
+    m_reset_period_ns =
+        param<int>("reset_period_ns").default_val(10666667);
     m_is_debug = param<bool>("debug").default_val(false);
     m_queue_type = param<std::string>("queue_type").default_val("priority");
     m_insecure_read_queue = param<bool>("insecure_read_queue")
@@ -117,6 +126,7 @@ public:
 
     m_reset_period_clk =
         m_reset_period_ns / ((float)m_dram->m_timing_vals("tCK_ps") / 1000.0f);
+    register_stat(m_reset_period_clk).name("reset_period_clk");
 
     m_DRFM_req_id = m_dram->m_requests("same-bank-directed-rfm");
     m_REF_ab_req_id = m_dram->m_requests("all-bank-refresh");
@@ -135,7 +145,7 @@ public:
     m_num_bankgroups = m_dram->get_level_size("bankgroup");
     m_num_banks = m_dram->get_level_size("bank");
 
-
+    // Initialize bank act count tables
     for (int i = 0; i < m_num_banks * m_num_bankgroups * m_num_ranks; i++) {
       std::vector<std::unordered_map<int, int>> table;
       for (int j = 0; j < no_hashes; j++) {
@@ -161,10 +171,12 @@ public:
 
   void update(bool request_found, ReqBuffer::iterator &req_it) override {
 
+    // Tick myself
     m_clk++;
 
     if (m_clk % m_reset_period_clk == 0) {
-
+      // Reset
+      //
       for (int i = 0; i < m_num_banks * m_num_bankgroups * m_num_ranks; i++) {
         for (int j = 0; j < no_hashes; j++) {
           for (int k = 0; k < no_counters_per_hash; k++) {
@@ -214,7 +226,7 @@ public:
         int rank_id = req_it->addr_vec[m_rank_level];
         int bankgroup_id = req_it->addr_vec[m_bank_group_level];
         int bank_id = req_it->addr_vec[m_bank_level];
-        
+
         int index = rank_id * m_num_banks * m_num_bankgroups +
                     bankgroup_id * m_num_banks + bank_id;
         // check the RAT
@@ -223,15 +235,20 @@ public:
           // fount entry in RAT
           cache_entry->second += 1;
 
+          // if cache entry is greater than threshold, schedule preventive
+          // refreshes
           if (cache_entry->second >= m_activation_threshold) {
+            // if yes, schedule preventive refreshes
             if (m_is_debug) {
               std::cout << "Row " << row_id << " in table " << flat_bank_id
                         << " has exceeded the threshold!" << std::endl;
             }
+            // if yes, schedule preventive refreshes
             Request drfm_req(req_it->addr_vec, m_DRFM_req_id);
             drfm_req.addr_vec[m_bank_group_level] = -1;
 
             if (m_queue_type == "read") {
+              // blacklist the address until DRFM request complete
               if (!m_insecure_read_queue) {
                 m_ctrl->addToBlacklist(drfm_req, false);
               }
@@ -243,9 +260,10 @@ public:
               if (!accepted)
                 m_memory_buffer.push(drfm_req);
             }
+            // reset counter here
             cache_entry->second = 0;
           }
-          
+
           int index = rank_id * m_num_banks * m_num_bankgroups +
                       bankgroup_id * m_num_banks + bank_id;
           misuse_bits[index].pop_front();
@@ -253,8 +271,12 @@ public:
           return;
         }
 
+        // row is not in the aggressor cache (RAT)
+        // check rows counters (CT)
         int min_ctr = INT_MAX;
         std::vector<int> indices;
+        // check the counter values to determine whether to send preventive
+        // refreshes
         for (int i = 0; i < no_hashes; i++) {
           int index = rank_id * m_num_banks * m_num_bankgroups +
                       bankgroup_id * m_num_banks + bank_id;
@@ -338,11 +360,13 @@ public:
         }
 
         if (updated_min_ctr >= m_activation_threshold) {
-
+          // this row
+          // if yes, schedule preventive refreshes
           Request drfm_req(req_it->addr_vec, m_DRFM_req_id);
           drfm_req.addr_vec[m_bank_group_level] = -1;
 
           if (m_queue_type == "read") {
+            // blacklist the address until DRFM request complete
             if (!m_insecure_read_queue) {
               m_ctrl->addToBlacklist(drfm_req, false);
             }
@@ -369,6 +393,7 @@ public:
           for (auto it = aggressor_cache[index].begin();
                it != aggressor_cache[index].end(); it++) {
             if (it->first < 0) {
+              // we have found an unused entry in the RAT
               found = true;
               remove_key = it->first;
               break;

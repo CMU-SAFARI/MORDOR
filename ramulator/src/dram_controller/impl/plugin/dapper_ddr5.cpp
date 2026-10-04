@@ -17,12 +17,13 @@ namespace Ramulator {
 class DAPPER_DDR5 : public IControllerPlugin, public Implementation {
   RAMULATOR_REGISTER_IMPLEMENTATION(IControllerPlugin, DAPPER_DDR5, "DAPPER_DDR5", "DAPPER with DRFM.")
 
-    private: 
+    private:
     int m_clk = -1;
+    int m_reset_period_ns = -1;
     int m_reset_period_clk;
-    
+
     size_t row_group_size = 256;
-    std::string m_queue_type = "priority"; 
+    std::string m_queue_type = "priority";
     bool m_insecure_read_queue = false;
     bool m_is_debug = false;
     int m_rowhammer_treshold;
@@ -44,6 +45,7 @@ class DAPPER_DDR5 : public IControllerPlugin, public Implementation {
 
     IDRAM *m_dram = nullptr;
 
+    // stats regarding the PROs issued
     int s_num_sent_drfm = 0;
     int s_num_resent_drfm = 0;
     int s_num_rejected_drfm = 0;
@@ -96,11 +98,12 @@ class DAPPER_DDR5 : public IControllerPlugin, public Implementation {
 
     void init() override {
         m_is_debug = param<bool>("debug").default_val(false);
-        m_queue_type = param<std::string>("queue_type").default_val("priority"); 
+        m_queue_type = param<std::string>("queue_type").default_val("priority");
         m_insecure_read_queue = param<bool>("insecure_read_queue")
                                     .desc("Send read-queue DRFMs without blacklisting their target rows.")
                                     .default_val(false);
         m_rowhammer_treshold = param<int>("tRH").required();
+        m_reset_period_ns = param<int>("reset_period_ns").default_val(32000000);
     };
 
     void setup(IFrontEnd *frontend, IMemorySystem *memory_system) override {
@@ -112,14 +115,10 @@ class DAPPER_DDR5 : public IControllerPlugin, public Implementation {
           "have DRFMsb command!");
         }
 
-        int m_reset_period_ns = 64000000;  // tREFW = 64ms (section iv, simulation framework, page 6)
         m_reset_period_clk =
         m_reset_period_ns / ((float)m_dram->m_timing_vals("tCK_ps") / 1000.0f);
 
-        size_t reset_cycles_32ms = 32000000 / ((float)m_dram->m_timing_vals("tCK_ps") / 1000.0f);
-        size_t ns2 = 2/((float)m_dram->m_timing_vals("tCK_ps") / 1000.0f);
-        std::cout << "[32ms is " << reset_cycles_32ms << " cycles, 2ns are " << ns2 << " clock cycles]" << std::endl;
-
+        // set the mitigation threshold to hald the RH threshold
         m_mitigation_threshold = m_rowhammer_treshold/2;
 
         m_num_ranks = m_dram->get_level_size("rank");
@@ -132,7 +131,7 @@ class DAPPER_DDR5 : public IControllerPlugin, public Implementation {
         m_bank_level = m_dram->m_levels("bank");
         m_bank_group_level = m_dram->m_levels("bankgroup");
         m_rank_level = m_dram->m_levels("rank");
-        
+
         m_num_total_rows = m_num_ranks * m_num_banks_per_rank * m_num_rows_per_bank;
         m_num_group_counters = m_num_total_rows / row_group_size;
 
@@ -171,7 +170,7 @@ class DAPPER_DDR5 : public IControllerPlugin, public Implementation {
 
     // Utitlity functions for debugging and verification
     std::string get_string_addr(const AddrVec_t& addr) {
-        std::ostringstream a; 
+        std::ostringstream a;
         for (size_t i=0; i<addr.size(); ++i) {
             a << addr[i];
         }
@@ -192,9 +191,9 @@ class DAPPER_DDR5 : public IControllerPlugin, public Implementation {
   #else
     #define DEBUG_PRINT(x)
     #define HERE
-  #endif 
+  #endif
 
-    
+
 // helper functions for base actions
 
     void clear_bit_for_other_banks(size_t group_counter, int dont_clear) {
@@ -244,15 +243,17 @@ class DAPPER_DDR5 : public IControllerPlugin, public Implementation {
     };
 
     void reissue_request() {
-        Request& next = m_memory_buffer.front(); 
+        Request& next = m_memory_buffer.front();
         bool accepted = false;
         if (m_queue_type == "priority" && next.type_id == m_DRFM_req_id) {
           DEBUG_PRINT("re-issueing a priority DRFM");
+          // priority send previously rejected DRFM requests in priority mode
           accepted = m_ctrl->priority_send(next);
         } else {
           DEBUG_PRINT("re-issueing a read-queue DRFM");
-          accepted = m_ctrl->send(next); 
+          accepted = m_ctrl->send(next);
         }
+        // only remove the request from the head of the queue if it was accepted
         if (accepted) {
             m_memory_buffer.pop();
             s_num_resent_drfm += 1;
@@ -294,14 +295,15 @@ class DAPPER_DDR5 : public IControllerPlugin, public Implementation {
 
     void issue_preventive_refresh(const AddrVec_t& addr_vec) {
         Request drfm_req(addr_vec, m_DRFM_req_id);
-        drfm_req.addr_vec[m_bank_group_level] = -1; 
+        drfm_req.addr_vec[m_bank_group_level] = -1;
 
         if (m_queue_type == "read") {
             DEBUG_PRINT("issueing a read-queue DRFM");
+            // blacklist the address until DRFM request complete
             if (!m_insecure_read_queue) {
                 m_ctrl->addToBlacklist(drfm_req, false);
             }
-            bool accepted = m_ctrl->send(drfm_req); 
+            bool accepted = m_ctrl->send(drfm_req);
             if (!accepted) {
                 m_memory_buffer.push(drfm_req);
                 s_num_rejected_drfm += 1;
@@ -312,20 +314,20 @@ class DAPPER_DDR5 : public IControllerPlugin, public Implementation {
             if (!accepted) {
                 m_memory_buffer.push(drfm_req);
                 s_num_rejected_drfm += 1;
-            } 
+            }
         }
     };
 
 
-    // looks up the max counter value in the other table, for any row that 
+    // looks up the max counter value in the other table, for any row that
     // maps to the counter we are resetting
-    // arguments: counter that overflowed in table A, mappings for table A, 
+    // arguments: counter that overflowed in table A, mappings for table A,
     // hash function for table B, table B, counter in table B
     int get_reset_counter(size_t counter1, const std::vector<std::vector<AddrVec_t>>& mapping,
         const SeededHash& hash, const std::vector<int>& table, size_t counter2) {
         // get all addresses mapped to counter in table A
         const auto& addrs = mapping[counter1];
-        int max = 0; 
+        int max = 0;
         for (const AddrVec_t& addr_vec : addrs) {
             // iterate over addresses, and get highest counter from table B
             size_t row_addr = get_row_addr(addr_vec);
@@ -386,14 +388,14 @@ class DAPPER_DDR5 : public IControllerPlugin, public Implementation {
         auto& bucket = mapping[hash_value];
         bool exists = std::any_of(bucket.begin(), bucket.end(), [&](const AddrVec_t& existing) {
             return compare(existing, addr_vec); });
-        
+
         if (!exists) {
             bucket.push_back(addr_vec);
         }
     };
 
 
-    
+
 
     public:
     virtual void update(bool request_found, ReqBuffer::iterator& req_it) override {
@@ -408,7 +410,7 @@ class DAPPER_DDR5 : public IControllerPlugin, public Implementation {
             reissue_request();
         } else if (request_found) {
             if (
-                m_dram->m_command_meta(req_it->command).is_opening && 
+                m_dram->m_command_meta(req_it->command).is_opening &&
                 m_dram->m_command_scopes(req_it->command) == m_row_level
             ) {
                 DEBUG_PRINT("row address is " << req_it->addr_vec[m_row_level]);
@@ -425,9 +427,9 @@ class DAPPER_DDR5 : public IControllerPlugin, public Implementation {
                 add_rgc_mapping(m_rgc_mappings_2, h2, req_it->addr_vec);
 
                 // check if bit vector is set
-                int bit_vector_index = req_it->addr_vec[m_rank_level] + req_it->addr_vec[m_bank_level] 
+                int bit_vector_index = req_it->addr_vec[m_rank_level] + req_it->addr_vec[m_bank_level]
                     + req_it->addr_vec[m_bank_group_level];
-                DEBUG_PRINT("row addr is " << addr << ", addr is " << req_it->addr << ", request addr_vec is " << get_string_addr(req_it->addr_vec) << 
+                DEBUG_PRINT("row addr is " << addr << ", addr is " << req_it->addr << ", request addr_vec is " << get_string_addr(req_it->addr_vec) <<
                     ", counters " << h1 << " and " << h2 << ", bit vecor index: " << bit_vector_index);
                 if (m_bit_vector[h1][bit_vector_index] == 0) {
                     // if not, set bit vector, only increment the row-group counter in table 2
@@ -446,7 +448,7 @@ class DAPPER_DDR5 : public IControllerPlugin, public Implementation {
                     if (row_group_counter_1[h1] >= m_mitigation_threshold &&
                         row_group_counter_2[h2] >= m_mitigation_threshold) {
                         // both counters have reached the mitigation threshold -> issue preventive refresh
-                        DEBUG_PRINT("exceeded threshold " << m_mitigation_threshold << 
+                        DEBUG_PRINT("exceeded threshold " << m_mitigation_threshold <<
                             " for counters " << h1 << " and " << h2);
                         issue_mitigation(h1, h2);
                     }

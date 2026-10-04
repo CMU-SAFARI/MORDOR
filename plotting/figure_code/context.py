@@ -2,8 +2,8 @@ from pathlib import Path
 import os
 
 # Canonical workload cohort used by every paper-result collector below.
-# Figure 7 intentionally selects the top 25 from this cohort, and Figure 12
-# shows its designated single-trace latency case (429.mcf).
+# Figure 6 selects the top 25 from this cohort. Figure 8 uses the five
+# explicitly selected high-PRO workloads from the camera-ready paper.
 PAPER_TRACES = [
     "random_10.trace", "stream_10.trace", "401.bzip2", "403.gcc",
     "429.mcf", "435.gromacs", "436.cactusADM", "437.leslie3d",

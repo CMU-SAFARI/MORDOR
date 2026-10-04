@@ -143,9 +143,6 @@ public:
     m_clk++;
   }
  
-  ReqBuffer::iterator get_best_request_old(ReqBuffer& buffer) override {
-    return get_best_request(buffer);
-  }
 };
 
 } // namespace Ramulator

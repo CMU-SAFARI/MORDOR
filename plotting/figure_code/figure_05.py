@@ -1,134 +1,94 @@
-import re
-from pathlib import Path
+"""Figure 5: MORDOR speedup and DRAM-energy reduction across NRH."""
 
+import numpy as np
 
-NUM_CORES = 8
-CPU_FREQUENCY_HZ = 2.0e9
-CPU_POWER_W = 500.0
-
-# One channel-local PROQ/CAM instance is assumed per memory channel.
-DEFAULT_NUM_CHANNELS = 2
-CAM_STATIC_POWER_PER_CHANNEL_MW = 2.267
-CAM_DYNAMIC_POWER_PER_CHANNEL_MW = 24.190
-
-MECHANISMS = ["Hydra", "PARA", "comet", "DAPPER", "graphene", "abacus"]
-MECHANISM_LABELS = {
-    "Hydra": "Hydra",
-    "PARA": "Para",
-    "comet": "Comet",
-    "DAPPER": "Dapper",
-    "graphene": "Graphene",
-    "abacus": "Abacus",
+PRTS = (125, 250, 500, 1000)
+FIGURE5_COLORS = {
+    "Hydra": "#9ecae1", "PARA": "#f4b183", "comet": "#a9d8b8",
+    "DAPPER": "#efaaa8", "graphene": "#bdbdbd", "abacus": "#c8b6e8",
 }
 
-CORE_CYCLE_RE = re.compile(r"cycles_recorded_core_(\d+):\s*([0-9]+)")
+
+def figure5_directory(prt, scheduler, mechanism):
+    if prt == 125:
+        return Path("main") / scheduler / mechanism
+    return Path("prt_sweep") / f"prt_{prt}" / scheduler / mechanism
 
 
-def trace_name(path: Path) -> str:
-    return path.name.removesuffix("_output.yaml")
-
-
-def average_core_cycles(path: Path) -> float:
-    cycles_by_core = {
-        int(match.group(1)): int(match.group(2))
-        for match in CORE_CYCLE_RE.finditer(path.read_text(errors="replace"))
-    }
-    missing = set(range(NUM_CORES)) - cycles_by_core.keys()
-    if missing:
-        raise ValueError(f"{path}: missing cycles for cores {sorted(missing)}")
-    return sum(cycles_by_core[core] for core in range(NUM_CORES)) / NUM_CORES
-
-
-def load_variant(
-    base_dir: Path,
-    mechanism: str,
-) -> dict[str, float]:
-    result_dir = base_dir / mechanism
-    if not result_dir.is_dir():
-        print(f"[warning] Missing directory: {result_dir}")
-        return {}
-
-    values = {}
-    for path in sorted(result_dir.glob("*_output.yaml")):
-        try:
-            trace = trace_name(path)
-            if trace in PAPER_TRACE_SET:
-                values[trace] = average_core_cycles(path)
-        except ValueError as error:
-            print(f"[warning] {error}")
-    return values
-
-
-def build_summary(repo_root: Path, num_channels: int) -> list[dict[str, float | str]]:
-    if num_channels < 1:
-        raise ValueError("num_channels must be at least 1")
-
-    cam_power_per_channel_w = (
-        CAM_STATIC_POWER_PER_CHANNEL_MW + CAM_DYNAMIC_POWER_PER_CHANNEL_MW
-    ) * 1e-3
-    cam_hardware_power_w = num_channels * cam_power_per_channel_w
-
-    rows = []
+figure5_values = {}
+for prt in PRTS:
     for mechanism in MECHANISMS:
-        priority = load_variant(
-            repo_root / "main" / "priority", mechanism
-        )
-        mordor = load_variant(
-            repo_root / "main" / "mordor", mechanism
-        )
-        common_traces = require_paper_trace_cohort(
-            f"Figure 5 / {MECHANISM_LABELS[mechanism]}",
-            {"Priority": priority, "MORDOR": mordor},
-        )
-
-        avg_priority_cycles = sum(priority[t] for t in common_traces) / len(
-            common_traces
-        )
-        avg_mordor_cycles = sum(mordor[t] for t in common_traces) / len(
-            common_traces
-        )
-        baseline_energy_j = (
-            CPU_POWER_W * avg_priority_cycles / CPU_FREQUENCY_HZ
-        )
-        mordor_energy_j = (
-            (CPU_POWER_W + cam_hardware_power_w)
-            * avg_mordor_cycles
-            / CPU_FREQUENCY_HZ
-        )
-
-        rows.append(
-            {
-                "Mechanism": mechanism,
-                "NumPairedTraces": len(common_traces),
-                "AvgCycles_Priority": avg_priority_cycles,
-                "AvgCycles_MORDOR": avg_mordor_cycles,
-                "NumChannels": num_channels,
-                "CamPowerPerChannel_W": cam_power_per_channel_w,
-                "CamHardwarePower_W": cam_hardware_power_w,
-                "BaselineEnergy_J": baseline_energy_j,
-                "CpuPlusCamEnergy_J": mordor_energy_j,
+        paired = {}
+        for scheduler in ("priority", "mordor"):
+            directory = figure5_directory(prt, scheduler, mechanism)
+            paired[scheduler] = {
+                path.name.removesuffix("_output.yaml"):
+                    read_scheduler_comparison_metrics(path, mechanism)
+                for path in sorted(directory.glob("*_output.yaml"))
             }
+        traces = require_paper_trace_cohort(
+            f"Figure 5 / NRH {prt} / {MECHANISM_LABELS[mechanism]}", paired
         )
-    return rows
+        for metric in ("cycles", "energy"):
+            figure5_values[(prt, mechanism, metric)] = [
+                100.0 * (paired["priority"][trace][metric]
+                         / paired["mordor"][trace][metric] - 1.0)
+                for trace in traces
+            ]
 
-
-energy_rows = build_summary(BUNDLE_ROOT, DEFAULT_NUM_CHANNELS)
-x = list(range(len(energy_rows)))
-width = 0.36
-labels = [MECHANISM_LABELS[str(row["Mechanism"])] for row in energy_rows]
-priority_energy = [float(row["BaselineEnergy_J"]) for row in energy_rows]
-mordor_energy = [float(row["CpuPlusCamEnergy_J"]) for row in energy_rows]
-fig, ax = plt.subplots(figsize=(7.1, 3.15), constrained_layout=True)
-ax.set_facecolor("#f4f4f4")
-ax.bar([value - width / 2 for value in x], priority_energy, width,
-       label="Priority", color="#858585", edgecolor="black", linewidth=0.4)
-ax.bar([value + width / 2 for value in x], mordor_energy, width,
-       label="MORDOR", color="#f28e3b", edgecolor="black", linewidth=0.4)
-ax.set_ylabel("Estimated Processor-Side\nEnergy [J]")
-ax.set_xticks(x, labels, rotation=25, ha="right", rotation_mode="anchor")
-ax.legend(frameon=False, ncol=2, loc="upper right",
-          handlelength=1.2, columnspacing=0.8)
-ax.grid(axis="y", color="#c9c9c9", linestyle="-", linewidth=0.3)
-ax.set_axisbelow(True)
-ax.spines[["top", "right"]].set_visible(False)
+fig, axes = plt.subplots(1, 2, figsize=(9.2, 3.65), constrained_layout=True)
+x = np.arange(len(PRTS), dtype=float)
+group_width = 0.90
+box_width = group_width / len(MECHANISMS)
+upper_limit = 120.0
+lower_limits = {"cycles": -2.0, "energy": -12.0}
+for ax, (metric, ylabel) in zip(axes, (
+    ("cycles", "Speedup over Priority\nScheduling [%]"),
+    ("energy", "DRAM Energy\nReduction [%]"),
+)):
+    for index, mechanism in enumerate(MECHANISMS):
+        groups = [figure5_values[(prt, mechanism, metric)] for prt in PRTS]
+        offset = (index - (len(MECHANISMS) - 1) / 2) * box_width
+        positions = x + offset
+        boxes = ax.boxplot(
+            groups, positions=positions, widths=box_width * 0.88,
+            patch_artist=True, manage_ticks=False, showfliers=True,
+            showmeans=True,
+            medianprops={"color": "#111111", "linewidth": 0.8},
+            meanprops={"marker": "D", "markerfacecolor": "white",
+                       "markeredgecolor": "#111111", "markeredgewidth": 0.6,
+                       "markersize": 3.0},
+            whiskerprops={"color": "#111111", "linewidth": 0.65},
+            capprops={"color": "#111111", "linewidth": 0.65},
+            flierprops={"marker": "o", "markerfacecolor": "none",
+                        "markeredgecolor": FIGURE5_COLORS[mechanism],
+                        "markeredgewidth": 0.55, "markersize": 2.3,
+                        "alpha": 0.8},
+        )
+        for box in boxes["boxes"]:
+            box.set_facecolor(FIGURE5_COLORS[mechanism])
+            box.set_edgecolor("#111111")
+            box.set_linewidth(0.65)
+        for position, group in zip(positions, groups):
+            observed_max = max(group)
+            if observed_max > upper_limit:
+                ax.text(position, upper_limit - 1.5, f"{observed_max:.0f}",
+                        ha="center", va="top", rotation=90, fontsize=8.0,
+                        color="#111111", zorder=6,
+                        bbox={"facecolor": "white", "edgecolor": "none",
+                              "alpha": 0.82, "pad": 0.25})
+    ax.axhline(0, color="#111111", linewidth=0.8)
+    ax.set_ylabel(ylabel)
+    ax.set_xticks(x, [str(prt) for prt in PRTS])
+    ax.set_ylim(lower_limits[metric], upper_limit)
+    ax.margins(x=0.035)
+    ax.yaxis.set_major_locator(MaxNLocator(nbins=5))
+    ax.grid(axis="y", color="#d6d6d6", linewidth=0.65, alpha=0.75)
+    ax.set_axisbelow(True)
+    ax.set_facecolor("white")
+fig.supxlabel(r"RowHammer Threshold $N_{\mathrm{RH}}$")
+handles = [Patch(facecolor=FIGURE5_COLORS[m], edgecolor="#111111",
+                 label=MECHANISM_LABELS[m]) for m in MECHANISMS]
+fig.legend(handles=handles, ncols=6, loc="upper center",
+           bbox_to_anchor=(0.5, 1.10), frameon=True)
 plt.show()
