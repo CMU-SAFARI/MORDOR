@@ -46,14 +46,6 @@ The [reproduction guide](REPRODUCING.md) provides the setup,
 execution, validation, and plotting instructions for reproducing the paper
 results.
 
-The `mordor_ae` branch preserves the artifact-evaluation version separately
-from the general documentation on `main`. Once that branch is published,
-obtain it with:
-
-```bash
-git clone --branch mordor_ae https://github.com/CMU-SAFARI/MORDOR.git MORDOR-AE
-```
-
 ## Repository structure
 
 ```text
