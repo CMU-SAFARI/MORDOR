@@ -7,6 +7,11 @@ and verifies the 55 traces; completed outputs remain in the ignored `results/`
 directory and are converted into an ignored, provenance-recorded
 `paper_results/` bundle before plotting.
 
+The simulator under `ramulator/` is derived from
+[Ramulator 2.0](https://github.com/CMU-SAFARI/ramulator2) and contains the
+MORDOR-specific controller, scheduling, and instrumentation changes used by
+the paper.
+
 ## Camera-ready scope
 
 The data-derived reproduction generates Figures 2 and 5–14:
@@ -162,3 +167,22 @@ Simulation requires x86-64 Linux, Python 3.9+, CMake 3.14+, a C++20 compiler,
 and about 20 GiB for traces/results. Slurm runs request one CPU and 6 GB RAM.
 Hosted orchestration additionally needs OpenSSH and `rsync`. The OpenROAD flow
 requires Docker, Docker Buildx, and at least 8 GB RAM.
+
+## Ramulator 2.0 citation
+
+If you use this artifact, please also cite the original Ramulator 2.0 paper:
+
+```bibtex
+@article{luo2024ramulator2,
+  author  = {Haocong Luo and Yahya Can Tu{\u{g}}rul and F. Nisa Bostanc{\i}
+             and Ataberk Olgun and A. Giray Ya{\u{g}}l{\i}k{\c{c}}{\i}
+             and Onur Mutlu},
+  title   = {{Ramulator 2.0: A Modern, Modular, and Extensible DRAM Simulator}},
+  journal = {IEEE Computer Architecture Letters},
+  volume  = {23},
+  number  = {1},
+  pages   = {112--116},
+  year    = {2024},
+  doi     = {10.1109/LCA.2023.3333759}
+}
+```

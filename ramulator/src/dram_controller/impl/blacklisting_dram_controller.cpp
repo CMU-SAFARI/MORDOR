@@ -397,12 +397,12 @@ public:
   };
 
   bool send(Request &req) override {
-    // Count processor reads only; mitigation metadata uses source_id == -1.
-    if (req.type_id == Request::Type::Read &&
+    // Count accepted processor reads only; send() may be retried while a
+    // controller queue is full, and mitigation metadata uses source_id == -1.
+    const bool is_processor_read =
+        req.type_id == Request::Type::Read &&
         req.mitigation_type == Request::MitigationType::None &&
-        req.source_id >= 0) {
-      s_num_read_reqs += 1;
-    }
+        req.source_id >= 0;
 
     req.final_command = m_dram->m_request_translations(req.type_id);
     if (req.mitigation_type == Request::MitigationType::RD ||
@@ -431,6 +431,7 @@ public:
         pending.push_back(req);
         add_accepted_metadata_to_proq(req);
         m_system->inc_req_count(req);
+        if (is_processor_read) s_num_read_reqs++;
         return true;
       }
     }
@@ -457,6 +458,7 @@ public:
     }
     add_accepted_metadata_to_proq(req);
     m_system->inc_req_count(req);
+    if (is_processor_read) s_num_read_reqs++;
     return true;
   };
 
@@ -1032,8 +1034,12 @@ private:
   }
 
   void finalize() override {
-    s_avg_read_latency = (float)s_read_latency / (float)s_num_read_reqs;
-    s_avg_proq_time = s_total_proq_time / s_num_proq_remv;
+    s_avg_read_latency = s_num_read_reqs == 0
+                             ? 0.0F
+                             : (float)s_read_latency / (float)s_num_read_reqs;
+    s_avg_proq_time = s_num_proq_remv == 0
+                          ? 0.0F
+                          : s_total_proq_time / s_num_proq_remv;
 
     s_queue_len_avg = (float)s_queue_len / (float)m_clk;
     s_read_queue_len_avg = (float)s_read_queue_len / (float)m_clk;

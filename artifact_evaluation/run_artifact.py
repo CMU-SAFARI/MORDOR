@@ -38,7 +38,13 @@ def main() -> None:
 
     if args.action in ("build", "all"):
         repo = repo_root_from_script()
-        subprocess.run(["cmake", "-S", str(repo), "-B", str(repo / "build")], check=True)
+        subprocess.run(
+            [
+                "cmake", "-S", str(repo), "-B", str(repo / "build"),
+                "-DCMAKE_BUILD_TYPE=Release",
+            ],
+            check=True,
+        )
         build_command = ["cmake", "--build", str(repo / "build"), "-j"]
         if args.build_jobs is not None:
             build_command.append(str(args.build_jobs))
