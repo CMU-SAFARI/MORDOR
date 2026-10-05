@@ -34,26 +34,31 @@ therefore take a very long time.
 Available classes:
 
 - `main`: the baseline without read disturbance mitigation, Priority
-  Scheduling, MORDOR, and Insecure configurations at PRT 125.
-- `multi-prt`: PRT 250, 500, and 1000 runs.
-- `latency`: demand memory request and PRO latency measurements for `429.mcf`.
+  Scheduling, MORDOR, and Insecure configurations at nominal RowHammer threshold 125.
+- `multi-prt`: nominal RowHammer thresholds of 250, 500, and 1000.
+- `latency`: demand memory request and PRO latency measurements for five
+  high-PRO workloads, each with one core and 100 million instructions.
 - `bank-count`: 8-bank and 32-bank sensitivity.
-- `blast-radius`: BRC-1 blast radii 1, 2, and 8.
-- `scheduling`: closed-row caps 4 and 16.
+- `blast-radius`: BRC 2 with blast radii 2 and 4; radius 1 uses `main`.
+- `drfm-address-setup`: MORDOR with an effective threshold of 122 and
+  47.5 ns additional DRFM latency at nominal RowHammer threshold 125.
 
 Every class evaluates six read disturbance mitigation techniques: ABACuS,
 Hydra, PARA, CoMeT, DAPPER, and Graphene. The aggregate classes use the single
 55-trace definition in `common.py`.
 
-Figure 6 alone requires the `main` and `multi-prt` classes. After those
-classes finish, run
+Figure 6 alone requires the `main` class. After that
+class finishes, run
 `.venv/bin/python reproduce.py figures -- --figures 6` from the repository
 root to build the reduced input bundle and emit only the Figure 6 PNG.
 
 Final outputs use semantic directories such as `main/priority/PARA`,
 `main/mordor/PARA`, and `main/insecure/PARA`; filenames are simply
 `<trace>_output.yaml`. Other classes follow the same policy-first convention
-under `prt_sweep`, `latency`, `bank_count`, `blast_radius`, and `row_policy`.
+under `prt_sweep`, `latency`, `bank_count`, `blast_radius`, and
+`drfm_address_setup`. Each generated job has a sibling `_manifest.yaml`
+recording the nominal and effective RowHammer thresholds, BRC, blast radius,
+core and instruction counts, scheduler, and DRFM address-setup settings.
 
 For direct operation inside a prepared cluster checkout:
 

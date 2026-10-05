@@ -1,98 +1,67 @@
-# Aggregate cycle and energy overheads across all PRT thresholds.
-MULTI_PRTS = [125, 250, 500, 1000]
+"""Figure 6: top-25 per-trace speedup at NRH=125."""
 
-def multi_prt_directory(prt, variant, mechanism):
-    if prt == 125:
-        return Path("main") / variant / mechanism
-    return Path("prt_sweep") / f"prt_{prt}" / variant / mechanism
+import numpy as np
 
-MULTI_PRT_FILE_RE = re.compile(r"^(?P<trace>.+)_output\.yaml$")
-multi_prt_metrics = {}
-for prt in MULTI_PRTS:
-    for mechanism in MECHANISMS:
-        for scheduler in SCHEDULER_COMPARISON_SCHEDULERS:
-            by_trace = {}
-            directory = multi_prt_directory(prt, scheduler, mechanism)
-            for path in sorted(directory.glob("*_output.yaml")):
-                match = MULTI_PRT_FILE_RE.match(path.name)
-                metrics = read_scheduler_comparison_metrics(path, mechanism) if match else None
-                if metrics is not None:
-                    by_trace[match.group("trace")] = metrics
-            multi_prt_metrics[(prt, mechanism, scheduler)] = by_trace
+TOP_COUNT = 25
+FIGURE6_MECHANISMS = ["abacus", "comet", "DAPPER", "graphene", "Hydra", "PARA"]
+FIGURE6_COLORS = {
+    "Hydra": "#9ecae1", "PARA": "#f4b183", "comet": "#a9d8b8",
+    "DAPPER": "#efaaa8", "graphene": "#bdbdbd", "abacus": "#c8b6e8",
+}
 
-multi_prt_complete_traces = {}
-for prt in MULTI_PRTS:
-    required = {"No-mitigation baseline": scheduler_comparison_baselines}
-    required.update({
-        f"{MECHANISM_LABELS[mechanism]} {SCHEDULER_COMPARISON_SCHEDULER_LABELS[scheduler]}":
-            multi_prt_metrics[(prt, mechanism, scheduler)]
-        for mechanism in MECHANISMS for scheduler in SCHEDULER_COMPARISON_SCHEDULERS
-    })
-    multi_prt_complete_traces[prt] = require_paper_trace_cohort(
-        f"Figure 6 / PRT {prt}", required
-    )
+complete = set(PAPER_TRACES)
+for mechanism in FIGURE6_MECHANISMS:
+    complete &= set(scheduler_comparison_metrics[(mechanism, "priority")])
+    complete &= set(scheduler_comparison_metrics[(mechanism, "mordor")])
 
-def multi_prt_grouped_stats(prt, metric):
-    grouped = {}
-    for mechanism in MECHANISMS:
-        for scheduler in SCHEDULER_COMPARISON_SCHEDULERS:
-            overheads = [
-                100.0 * (multi_prt_metrics[(prt, mechanism, scheduler)][trace][metric]
-                         / scheduler_comparison_baselines[trace][metric] - 1.0)
-                for trace in multi_prt_complete_traces[prt]
-            ]
-            sem = (statistics.stdev(overheads) / len(overheads) ** 0.5
-                   if len(overheads) > 1 else 0.0)
-            grouped[(mechanism, scheduler)] = (statistics.fmean(overheads), sem)
-    return grouped
+# Rank by logical MORDOR PROQ insertions summed across all six mechanisms.
+# shared_results has already normalized ABACuS's 32 inserted entries per
+# logical all-bank PRO.
+intensity = {}
+for trace in complete:
+    values = []
+    for mechanism in FIGURE6_MECHANISMS:
+        value = scheduler_comparison_metrics[(mechanism, "mordor")][trace]["num_proq_adds"]
+        if value is None:
+            raise ValueError(f"Figure 6 lacks PROQ traffic for {mechanism}/{trace}")
+        values.append(value)
+    intensity[trace] = sum(values)
+top_traces = [trace for trace, _ in sorted(
+    intensity.items(), key=lambda item: (-item[1], item[0])
+)[:TOP_COUNT]]
+if len(top_traces) != TOP_COUNT:
+    raise ValueError(f"Figure 6 requires {TOP_COUNT} complete traces")
 
-fig, axes = plt.subplots(2, len(MULTI_PRTS), figsize=(12.2, 4.8),
-                         constrained_layout=True, sharex="col")
-multi_prt_specs = [("cycles", "Cycle Count\nOverhead [%]"),
-                   ("energy", "DRAM Energy\nOverhead [%]")]
-x = list(range(len(MECHANISMS)))
-bar_width = 0.34
-for column, prt in enumerate(MULTI_PRTS):
-    for row_index, (metric, ylabel) in enumerate(multi_prt_specs):
-        ax = axes[row_index, column]
-        grouped = multi_prt_grouped_stats(prt, metric)
-        for scheduler_index, scheduler in enumerate(SCHEDULER_COMPARISON_SCHEDULERS):
-            means = [grouped[(mechanism, scheduler)][0] for mechanism in MECHANISMS]
-            errors = [grouped[(mechanism, scheduler)][1] for mechanism in MECHANISMS]
-            positions = [position + (scheduler_index - 0.5) * bar_width for position in x]
-            ax.bar(positions, means, bar_width, yerr=errors, capsize=2.5,
-                   color=SCHEDULER_COMPARISON_SCHEDULER_COLORS[scheduler],
-                   edgecolor="#111111", linewidth=0.6,
-                   error_kw={"elinewidth": 0.7})
-        if row_index == 0:
-            ax.set_title(f"PRT = {prt}")
-        if column == 0:
-            ax.set_ylabel(ylabel)
-        if row_index == 1:
-            ax.set_xticks(x, [MECHANISM_LABELS[m] for m in MECHANISMS],
-                          rotation=30, ha="right")
-        else:
-            ax.tick_params(axis="x", labelbottom=False)
-        ax.yaxis.set_major_locator(MaxNLocator(nbins=4))
-        ax.axhline(0, color="#111111", linewidth=0.6)
-        ax.set_facecolor(PLOT_BACKGROUND_COLOR)
-        ax.grid(axis="y", color=GRID_COLOR, linewidth=0.7, alpha=0.6)
-        ax.set_axisbelow(True)
-        ax.spines[["top", "right"]].set_visible(False)
-
-multi_prt_handles = [
-    Patch(facecolor=SCHEDULER_COMPARISON_SCHEDULER_COLORS[scheduler], edgecolor="#111111",
-          label=SCHEDULER_COMPARISON_SCHEDULER_LABELS[scheduler])
-    for scheduler in SCHEDULER_COMPARISON_SCHEDULERS
-]
-multi_prt_legend = axes[1, -1].legend(handles=multi_prt_handles, title="Scheduler",
-                                           frameon=True, fontsize=PLOT_FONT_SIZE,
-                                           title_fontsize=PLOT_FONT_SIZE,
-                                           loc="upper right")
-multi_prt_legend.get_frame().set_facecolor("#f4f4f4")
-multi_prt_legend.get_frame().set_edgecolor(GRID_COLOR)
+fig, ax = plt.subplots(figsize=(12.5, 3.8), constrained_layout=True)
+x = np.arange(len(top_traces) + 1, dtype=float)
+width = 0.82 / len(FIGURE6_MECHANISMS)
+upper_limit = 250.0
+for index, mechanism in enumerate(FIGURE6_MECHANISMS):
+    values = [
+        100.0 * (
+            scheduler_comparison_metrics[(mechanism, "priority")][trace]["cycles"]
+            / scheduler_comparison_metrics[(mechanism, "mordor")][trace]["cycles"] - 1.0
+        ) for trace in top_traces
+    ]
+    plotted = [*values, statistics.fmean(values)]
+    offset = (index - (len(FIGURE6_MECHANISMS) - 1) / 2) * width
+    positions = x + offset
+    ax.bar(positions, plotted, width, color=FIGURE6_COLORS[mechanism],
+           edgecolor="#111111", linewidth=0.65, zorder=3)
+    for position, value in zip(positions, plotted):
+        if value > upper_limit:
+            ax.text(position, upper_limit - 1.5, f"{value:.1f}", ha="center",
+                    va="bottom", fontsize=8.0, color="#111111", zorder=5)
+ax.axhline(0, color="#111111", linewidth=0.8)
+ax.axvline(len(top_traces) - 0.5, color="#666666", linewidth=1.0)
+ax.set_ylabel("Speedup over Priority\nScheduling [%]")
+ax.set_xticks(x, [*top_traces, "AVG"], rotation=65, ha="right")
+ax.get_xticklabels()[-1].set_fontweight("bold")
+ax.set_ylim(0, upper_limit)
+ax.grid(axis="y", color="#d6d6d6", linewidth=0.65, alpha=0.75)
+ax.set_axisbelow(True)
+ax.set_facecolor("white")
+handles = [Patch(facecolor=FIGURE6_COLORS[m], edgecolor="#111111",
+                 label=MECHANISM_LABELS[m]) for m in FIGURE6_MECHANISMS]
+ax.legend(handles=handles, ncols=3, loc="upper right", frameon=True)
 plt.show()
-
-print("Complete traces used per PRT: " + ", ".join(
-    f"{prt}: {len(multi_prt_complete_traces[prt])}" for prt in MULTI_PRTS
-))

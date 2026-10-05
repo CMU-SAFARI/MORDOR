@@ -14,8 +14,8 @@ INSECURE_RESULTS_DIR = Path("main/insecure")
 NO_MITIGATION_RESULTS_DIR = Path("baseline/no_mitigation")
 
 MECHANISMS = ["Hydra", "PARA", "comet", "DAPPER", "graphene", "abacus"]
-MECHANISM_LABELS = {"Hydra": "Hydra", "PARA": "Para", "comet": "Comet",
-                    "DAPPER": "Dapper", "graphene": "Graphene", "abacus": "Abacus"}
+MECHANISM_LABELS = {"Hydra": "Hydra", "PARA": "PARA", "comet": "CoMeT",
+                    "DAPPER": "DAPPER", "graphene": "Graphene", "abacus": "ABACuS"}
 # Neutral mechanism palette; orange is reserved for data explicitly labeled MORDOR.
 MECHANISM_COLORS = {"abacus": "#404040", "comet": "#666666", "DAPPER": "#858585",
                     "graphene": "#a3a3a3", "Hydra": "#c2c2c2", "PARA": "#dedede"}
@@ -151,16 +151,46 @@ def read_scheduler_comparison_metrics(path, mechanism):
     proq_adds = scheduler_comparison_repeated_values(text, "num_PROQ_adds")
     avg_proq = scheduler_comparison_repeated_values(text, "avg_PROQ_size")
     max_proq = scheduler_comparison_repeated_values(text, "max_PROQ_size")
-    avg_delayed = scheduler_comparison_repeated_values(text, "avg_num_rw_delayed_by_PRO", nan_as_zero=True)
-    max_delayed = scheduler_comparison_repeated_values(text, "max_num_rw_delayed_by_PRO")
+    avg_delayed = scheduler_comparison_repeated_values(
+        text, "avg_num_demand_delayed_by_PRO", nan_as_zero=True
+    )
+    max_delayed = scheduler_comparison_repeated_values(
+        text, "max_num_demand_delayed_by_PRO"
+    )
+    avg_read_delayed = scheduler_comparison_repeated_values(
+        text, "avg_num_read_demand_delayed_by_PRO", nan_as_zero=True
+    )
+    max_read_delayed = scheduler_comparison_repeated_values(
+        text, "max_num_read_demand_delayed_by_PRO"
+    )
+    avg_write_delayed = scheduler_comparison_repeated_values(
+        text, "avg_num_write_demand_delayed_by_PRO", nan_as_zero=True
+    )
+    max_write_delayed = scheduler_comparison_repeated_values(
+        text, "max_num_write_demand_delayed_by_PRO"
+    )
+    counted_pros = scheduler_comparison_repeated_values(text, "num_counted_PROs")
+    total_counted_pros = sum(counted_pros)
+
+    def weighted_channel_average(values):
+        if values and len(values) == len(counted_pros) and total_counted_pros > 0:
+            return sum(value * count for value, count in zip(values, counted_pros)) / total_counted_pros
+        if values and total_counted_pros == 0:
+            return 0.0
+        return None
+
     return {
         "cycles": statistics.fmean(cycles),
         "energy": energy,
         "num_proq_adds": sum(proq_adds) / divisor if proq_adds else None,
         "avg_proq_size": statistics.fmean(avg_proq) / divisor if avg_proq else None,
         "max_proq_size": max(max_proq) / divisor if max_proq else None,
-        "avg_delayed": statistics.fmean(avg_delayed) if avg_delayed else None,
+        "avg_delayed": weighted_channel_average(avg_delayed),
         "max_delayed": max(max_delayed) if max_delayed else None,
+        "read_avg_delayed": weighted_channel_average(avg_read_delayed),
+        "read_max_delayed": max(max_read_delayed) if max_read_delayed else None,
+        "write_avg_delayed": weighted_channel_average(avg_write_delayed),
+        "write_max_delayed": max(max_write_delayed) if max_write_delayed else None,
     }
 
 def collect_scheduler_comparison_metrics(directory, mechanism):

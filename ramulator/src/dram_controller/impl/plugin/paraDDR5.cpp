@@ -17,7 +17,7 @@
 #else
   #define DEBUG_PRINT(x)
   #define HERE
-  #endif 
+  #endif
 
 
 namespace Ramulator {
@@ -26,7 +26,7 @@ class PARAddr5 : public IControllerPlugin, public Implementation {
   RAMULATOR_REGISTER_IMPLEMENTATION(IControllerPlugin, PARAddr5, "PARAddr5", "PARA with DRFM.")
 
   private:
-    std::deque<Request> m_memory_buffer;  
+    std::deque<Request> m_memory_buffer;
 
     IDRAM* m_dram = nullptr;
 
@@ -42,11 +42,11 @@ class PARAddr5 : public IControllerPlugin, public Implementation {
     int m_row_level = -1;
     int m_bank_group_level = -1;
 
-    std::string m_queue_type = "priority"; 
+    std::string m_queue_type = "priority";
     bool m_insecure_read_queue = false;
 
   public:
-    void init() override { 
+    void init() override {
       m_pr_threshold = param<float>("threshold").desc("Probability threshold for issuing neighbor row refresh").required();
       if (m_pr_threshold <= 0.0f || m_pr_threshold >= 1.0f)
         throw ConfigurationError("Invalid probability threshold ({}) for PARA!", m_pr_threshold);
@@ -57,7 +57,7 @@ class PARAddr5 : public IControllerPlugin, public Implementation {
 
       m_is_debug = param<bool>("debug").default_val(false);
 
-      m_queue_type = param<std::string>("queue_type").default_val("priority"); 
+      m_queue_type = param<std::string>("queue_type").default_val("priority");
       m_insecure_read_queue = param<bool>("insecure_read_queue")
                                   .desc("Send read-queue DRFMs without blacklisting their target rows.")
                                   .default_val(false);
@@ -82,12 +82,12 @@ class PARAddr5 : public IControllerPlugin, public Implementation {
     void update(bool request_found, ReqBuffer::iterator& req_it) override {
       if (!m_memory_buffer.empty()) {
         // check if there are rejected requests that we need to issue first
-        Request next = m_memory_buffer.front(); 
-        m_memory_buffer.pop_front(); 
+        Request next = m_memory_buffer.front();
+        m_memory_buffer.pop_front();
         bool accepted = false;
         if (m_queue_type == "read") {
           DEBUG_PRINT("re-sending a DRFM request");
-          accepted = m_ctrl->send(next); 
+          accepted = m_ctrl->send(next);
         } else {
           accepted = m_ctrl->priority_send(next);
           DEBUG_PRINT("re-priority-sending a DRFM request");
@@ -99,12 +99,12 @@ class PARAddr5 : public IControllerPlugin, public Implementation {
         }
       } else if (request_found) {
         if (
-          m_dram->m_command_meta(req_it->command).is_opening && 
+          m_dram->m_command_meta(req_it->command).is_opening &&
           m_dram->m_command_scopes(req_it->command) == m_row_level
         ) {
           if (m_distribution(m_generator) < m_pr_threshold) {
             Request drfm_req(req_it->addr_vec, m_DRFM_req_id);
-            
+
             drfm_req.addr_vec[m_bank_group_level] = -1;
 
             if (m_queue_type == "read") {
@@ -112,11 +112,11 @@ class PARAddr5 : public IControllerPlugin, public Implementation {
               if (!m_insecure_read_queue) {
                 m_ctrl->addToBlacklist(drfm_req, false);
               }
-              bool accepted = m_ctrl->send(drfm_req); 
+              bool accepted = m_ctrl->send(drfm_req);
               if (!accepted) {
                 m_memory_buffer.push_back(drfm_req);
                 DEBUG_PRINT("drfm request rejected from read queue");
-              } 
+              }
             } else {
               DEBUG_PRINT("trying to priority-send DRFM request");
               bool success = m_ctrl->priority_send(drfm_req);

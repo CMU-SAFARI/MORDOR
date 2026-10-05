@@ -532,7 +532,7 @@ private:
         {70, 70, 70}, // tRRFab
         {60, 60, 60}, // tRRFsb
     };
-    m_BRC = param_group("RFM").param<int>("BRC").default_val(1);
+    m_BRC = param_group("RFM").param<int>("BRC").default_val(2);
     m_timing_vals("nDRFMab") =
         m_RH_radius * 2 * m_BRC * JEDEC_rounding_DDR5(tRRFsb_TABLE[0][density_id], tCK_ps);
     m_timing_vals("nDRFMsb") =

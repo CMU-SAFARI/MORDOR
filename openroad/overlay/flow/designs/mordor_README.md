@@ -21,8 +21,6 @@ The `MODE` parameter selects the hardware configuration:
 | --- | --- | --- |
 | `0` | Baseline memory-controller request-queue array | Provides the reference for incremental hardware overhead. |
 | `1` | CAM lookup for each request-queue entry | Implements the blacklist query on the scheduling path; used for Table 1. |
-| `2` | One blocked bit per request-queue entry | Provides a supplementary alternative to the CAM lookup on the scheduling path. |
-| `3` | PROQ lookup when a request is admitted | Models the installation lookup for a latency comparison; not included in the default Table 1 evaluation. |
 
 The remaining parameters are `MC_ENTRIES` for request-queue capacity,
 `PROQ_ENTRIES` for PROQ capacity, and `ADDR_W` for address width. Their default
@@ -57,17 +55,6 @@ memory-controller request-queue capacity, PROQ capacities, and intermediate
 result directory. Their defaults are 64, `32 48 64 78`, and
 `/tmp/mordor_table1`, respectively. Changing them defines a different
 hardware configuration from the default paper evaluation.
-
-## Supplementary implementation
-
-The `--blocked-bit` option additionally evaluates `MODE=2` and uses CACTI
-to model the PROQ structure and its installation lookup. This configuration
-is not used for the paper's Table 1 results. `CACTI_DIR` identifies the
-CACTI installation within the prepared environment.
-
-```bash
-bash designs/mordor_table1.sh --blocked-bit
-```
 
 ## Reports and intermediate results
 

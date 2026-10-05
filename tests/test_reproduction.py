@@ -19,8 +19,22 @@ SPEC = importlib.util.spec_from_file_location(
 CLI = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(CLI)
 
+from common import EXPERIMENT_CLASSES, LATENCY_TRACES, MECHANISMS, TRACES
+from run_experiments import build_cases
+
 
 class ReproductionTests(unittest.TestCase):
+    def test_camera_ready_matrix(self):
+        cases = build_cases(EXPERIMENT_CLASSES, ROOT / "ramulator", Path("results"), MECHANISMS)
+        self.assertEqual(len(cases), 123)
+        jobs = sum(len(LATENCY_TRACES) if case.latency_only else len(TRACES) for case in cases)
+        self.assertEqual(jobs, 6165)
+        self.assertIn("drfm-address-setup", EXPERIMENT_CLASSES)
+        self.assertNotIn("scheduling", EXPERIMENT_CLASSES)
+        for case in cases:
+            if case.latency_only:
+                self.assertEqual((case.cores, case.instructions), (1, 100_000_000))
+
     def invoke(self, *arguments):
         with patch.object(sys, "argv", ["reproduce.py", *arguments]):
             with patch.object(CLI.subprocess, "run") as run:
@@ -103,12 +117,19 @@ class ReproductionTests(unittest.TestCase):
                 config.write_text(yaml.safe_dump(profile))
                 result = subprocess.run(
                     [sys.executable, str(ROOT / "reproduce.py"), backend, "plan",
-                     "--profile", str(config), "--classes", "main", "--traces", "429.mcf"],
+                     "--profile", str(config), "--traces", "429.mcf"],
                     capture_output=True, text=True,
                 )
                 self.assertEqual(result.returncode, 0, result.stderr)
-                scripts = list((directory / "workspace").rglob("*.sh"))
-                self.assertTrue(scripts)
+                scripts = list((directory / "workspace").rglob("429.mcf.sh"))
+                self.assertEqual(len(scripts), 123)
+                script_dir = "slurm" if backend == "slurm" else "local_jobs"
+                manifest_path = (directory / "workspace" / script_dir / "drfm-address-setup"
+                                 / "drfm-setup-PARA-mordor" / "429.mcf_manifest.yaml")
+                manifest = yaml.safe_load(manifest_path.read_text())
+                self.assertEqual(manifest["effective_nrh"], 122)
+                self.assertEqual(manifest["brc"], 2)
+                self.assertTrue(manifest["drfm_address_setup"])
                 if backend == "slurm":
                     for script in scripts:
                         text = script.read_text()

@@ -102,12 +102,13 @@ After `progress` reports the complete matrix as valid, generate Figures 2 and
 To plot only selected traces, pass their exact names to the figure generator:
 
 ```bash
-.venv/bin/python reproduce.py figures --traces 429.mcf 470.lbm
+.venv/bin/python reproduce.py figures --traces 429.mcf 470.lbm -- --figures 2
 ```
 
 This rebuilds `paper_results/` with only the selected traces and uses that same
-cohort consistently across the generated figures. Omit `--traces` to retain
-the canonical 55-trace paper cohort.
+cohort consistently for Figure 2. Figure 6 ranks the 25 workloads with the
+highest PRO intensity and requires at least 25 complete traces. Omit
+`--traces` to retain the 55-workload paper cohort for complete reproduction.
 
 ## Long-running local execution
 
@@ -161,7 +162,7 @@ Monitor it from another terminal:
 ```
 
 An interrupt terminates the active local job while preserving completed
-outputs. The complete configuration contains 7,767 simulations and can take a
+outputs. The complete configuration contains 6,165 simulations and can take a
 substantial time on a single machine. Use `--classes` and `--traces` to
 evaluate a subset of the experiment matrix.
 
@@ -184,13 +185,13 @@ for one trace without running the complete 55-trace evaluation:
 .venv/bin/python reproduce.py local progress --traces 401.bzip2
 ```
 
-This produces 153 jobs: one for each configuration-level case. `resume` skips
+This produces 123 jobs: one for each configuration-level case. `resume` skips
 valid results and active jobs on Slurm. Use the same `--traces` selection when
 checking progress. Use `slurm` instead of `local` and pass your `--profile` to
 run this cohort on a Slurm installation.
 
 Omitting `--traces` always restores the canonical paper cohorts: 55 traces for
-aggregate studies and only `429.mcf` for latency.
+aggregate studies and five high-PRO workloads for latency.
 
 ## Inspecting or running selected experiments
 
@@ -223,8 +224,8 @@ results/
 ├── prt_sweep/prt_<n>/{priority,mordor}/<technique>/<trace>_output.yaml
 ├── latency/{priority,mordor}/<technique>/<trace>_latency.txt
 ├── bank_count/banks_<n>/{baseline,priority/<technique>,mordor/<technique>}/
-├── blast_radius/brc_1/radius_<n>/{priority,mordor}/<technique>/
-└── row_policy/cap_<n>/{priority,mordor}/<technique>/
+├── blast_radius/brc_2/radius_<n>/{priority,mordor}/<technique>/
+└── drfm_address_setup/mordor/<technique>/
 ```
 
 Here `priority` denotes Priority Scheduling of PROs, `mordor` denotes MORDOR
@@ -234,9 +235,11 @@ aggressor-row blacklisting.
 The directory hierarchy records the configuration, so result filenames contain
 only the trace name.
 
-The aggregate studies use exactly the canonical 55 paper traces. The latency
-study uses only `429.mcf`. The blast-radius study directly configures BRC 1 and
-blast radii 1, 2, and 8.
+The aggregate studies use the 55 paper workloads. The latency study uses
+`429.mcf`, `470.lbm`, `random_10.trace`, `stream_10.trace`, and
+`549.fotonik3d`, each with one core and 100 million instructions.
+The blast-radius study uses BRC 2 and radii 2 and 4; radius 1 uses the
+main-study results.
 
 Plotting rebuilds the compact `paper_results/` tree from `results/`
 and writes labelled PNGs for data-derived Figures 2 and 5–14 to `figures/`.
@@ -293,15 +296,15 @@ accepted. If your execution profile changes `paths.workspace_root`, set
 
 ## Reduced Figure 6 reproduction
 
-Figure 6 needs the `main` and `multi-prt` classes. After local setup, run:
+Figure 6 requires the `main` class. After local setup, run:
 
 ```bash
-.venv/bin/python reproduce.py local resume --classes main multi-prt
-.venv/bin/python reproduce.py local progress --classes main multi-prt
+.venv/bin/python reproduce.py local resume --classes main
+.venv/bin/python reproduce.py local progress --classes main
 .venv/bin/python reproduce.py figures -- --figures 6
 ```
 
 For Slurm, replace `local` with `slurm` and pass your `--profile`.
 Run plotting after all selected simulations are valid. This builds only
 Figure 6's inputs in `paper_results/` and writes
-`figures/Figure_06_overheads_across_prt.png`.
+`figures/Figure_06_top25_per_trace_speedup.png`.

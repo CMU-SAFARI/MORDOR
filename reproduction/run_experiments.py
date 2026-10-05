@@ -18,8 +18,12 @@ from pathlib import Path
 import yaml
 
 from common import (
-    BLAST_BRC, BLAST_RADII, EXPERIMENT_CLASSES, LATENCY_TRACES, MECHANISMS, TRACES,
+    BLAST_RADII, EXPERIMENT_CLASSES, LATENCY_TRACES, MECHANISMS, TRACES,
     repo_root_from_script, resolve_path,
+)
+from paper_config import (
+    LATENCY_INSTRUCTIONS, MAIN_BRC, MAIN_INSTRUCTIONS, MAIN_RADIUS,
+    apply_paper_parameters, parameter_manifest,
 )
 
 
@@ -30,12 +34,13 @@ class Case:
     config_path: Path
     result_dir: Path
     stem_prefix: str
+    mechanism: str | None = None
+    scheduler: str = "baseline"
+    nominal_nrh: int = 125
     cores: int = 8
-    queue_type: str | None = None
-    insecure: bool | None = None
-    row_cap: int | None = None
-    brc: int | None = None
-    rh_radius: int | None = None
+    instructions: int = MAIN_INSTRUCTIONS
+    radius: int = MAIN_RADIUS
+    drfm_setup: bool = False
     latency_only: bool = False
     remove_plugins: bool = False
 
@@ -109,20 +114,20 @@ def config_file(repo: Path, mechanism: str, prt: int, scheduler: str) -> Path:
 def add_main_cases(cases: list[Case], repo: Path, results: Path, mechanisms: list[str]) -> None:
     baseline = config_file(repo, "abacus", 125, "read")
     cases.append(Case(
-        "main", "baseline", baseline, results / "baseline/no_mitigation", "", 8,
+        "main", "baseline", baseline, results / "baseline/no_mitigation", "",
         remove_plugins=True,
     ))
     for mechanism in mechanisms:
         cases.extend([
             Case("main", f"{mechanism}-priority", config_file(repo, mechanism, 125, "priority"),
                  results / "main/priority" / mechanism,
-                 "", queue_type="priority", insecure=False),
+                 "", mechanism, "priority"),
             Case("main", f"{mechanism}-mordor", config_file(repo, mechanism, 125, "read"),
                  results / "main/mordor" / mechanism,
-                 "", queue_type="read", insecure=False),
+                 "", mechanism, "mordor"),
             Case("main", f"{mechanism}-insecure", config_file(repo, mechanism, 125, "read"),
                  results / "main/insecure" / mechanism,
-                 "", queue_type="read", insecure=True),
+                 "", mechanism, "insecure"),
         ])
 
 
@@ -130,29 +135,28 @@ def add_multi_prt_cases(cases: list[Case], repo: Path, results: Path,
                         mechanisms: list[str]) -> None:
     for prt in (250, 500, 1000):
         for mechanism in mechanisms:
-            for scheduler, variant in (
+            for source_scheduler, variant in (
                 ("priority", "priority"),
                 ("read", "mordor"),
             ):
                 cases.append(Case(
-                    "multi-prt", f"{mechanism}-{prt}-{scheduler}",
-                    config_file(repo, mechanism, prt, scheduler),
+                    "multi-prt", f"{mechanism}-{prt}-{variant}",
+                    config_file(repo, mechanism, prt, source_scheduler),
                     results / "prt_sweep" / f"prt_{prt}" / variant / mechanism,
-                    "", 8,
-                    queue_type=scheduler, insecure=False,
+                    "", mechanism, variant, prt,
                 ))
 
 
 def add_latency_cases(cases: list[Case], repo: Path, results: Path,
                       mechanisms: list[str]) -> None:
     for mechanism in mechanisms:
-        for scheduler, variant in (("priority", "priority"), ("read", "mordor")):
+        for source_scheduler, variant in (("priority", "priority"), ("read", "mordor")):
             cases.append(Case(
-                "latency", f"{mechanism}-{scheduler}",
-                config_file(repo, mechanism, 125, scheduler),
+                "latency", f"{mechanism}-{variant}",
+                config_file(repo, mechanism, 125, source_scheduler),
                 results / "latency" / variant / mechanism,
-                "", 1,
-                queue_type=scheduler, insecure=False, latency_only=True,
+                "", mechanism, variant, 125, 1, LATENCY_INSTRUCTIONS,
+                latency_only=True,
             ))
 
 
@@ -166,22 +170,21 @@ def add_bank_cases(cases: list[Case], repo: Path, results: Path,
         cases.append(Case(
             "bank-count", f"b{banks}-baseline", baseline,
             results / "bank_count" / f"banks_{banks}" / "baseline",
-            "", 8, remove_plugins=True,
+            "", remove_plugins=True,
         ))
         for mechanism in mechanisms:
-            for scheduler, variant in (
+            for source_scheduler, variant in (
                 ("priority", "priority"),
                 ("read", "mordor"),
             ):
                 source = repo / "bank_count_study" / f"banks_{banks}" / (
-                    f"example_ddr5_config_{mechanism}_125_{scheduler}.yaml"
+                    f"example_ddr5_config_{mechanism}_125_{source_scheduler}.yaml"
                 )
                 cases.append(Case(
-                    "bank-count", f"b{banks}-{mechanism}-{scheduler}", source,
+                    "bank-count", f"b{banks}-{mechanism}-{variant}", source,
                     results / "bank_count" / f"banks_{banks}"
                     / variant / mechanism,
-                    "", 8,
-                    queue_type=scheduler, insecure=False,
+                    "", mechanism, variant,
                 ))
 
 
@@ -189,34 +192,29 @@ def add_blast_cases(cases: list[Case], repo: Path, results: Path,
                     mechanisms: list[str]) -> None:
     for radius in BLAST_RADII:
         for mechanism in mechanisms:
-            for scheduler, variant in (
+            for source_scheduler, variant in (
                 ("priority", "priority"),
                 ("read", "mordor"),
             ):
-                source = config_file(repo, mechanism, 125, scheduler)
+                source = config_file(repo, mechanism, 125, source_scheduler)
                 cases.append(Case(
-                    "blast-radius", f"r{radius}-{mechanism}-{scheduler}", source,
-                    results / "blast_radius" / "brc_1" / f"radius_{radius}"
+                    "blast-radius", f"r{radius}-{mechanism}-{variant}", source,
+                    results / "blast_radius" / "brc_2" / f"radius_{radius}"
                     / variant / mechanism,
-                    "", 8,
-                    queue_type=scheduler, insecure=False, brc=BLAST_BRC,
-                    rh_radius=radius,
+                    "", mechanism, variant, 125, 8, MAIN_INSTRUCTIONS, radius,
                 ))
 
 
-def add_scheduling_cases(cases: list[Case], repo: Path, results: Path,
+def add_drfm_setup_cases(cases: list[Case], repo: Path, results: Path,
                          mechanisms: list[str]) -> None:
-    for cap in (4, 16):
-        for mechanism in mechanisms:
-            for variant, scheduler in (("priority", "priority"), ("mordor", "read")):
-                cases.append(Case(
-                    "scheduling", f"cap{cap}-{mechanism}-{variant}",
-                    config_file(repo, mechanism, 125, scheduler),
-                    results / "row_policy" / f"cap_{cap}"
-                    / variant / mechanism,
-                    "", 8,
-                    queue_type=scheduler, insecure=False, row_cap=cap,
-                ))
+    for mechanism in mechanisms:
+        cases.append(Case(
+            "drfm-address-setup", f"drfm-setup-{mechanism}-mordor",
+            config_file(repo, mechanism, 125, "read"),
+            results / "drfm_address_setup" / "mordor" / mechanism,
+            "", mechanism, "mordor", 125, 8, MAIN_INSTRUCTIONS, MAIN_RADIUS,
+            True,
+        ))
 
 
 def build_cases(classes: list[str], repo: Path, results: Path,
@@ -228,7 +226,7 @@ def build_cases(classes: list[str], repo: Path, results: Path,
         "latency": lambda: add_latency_cases(cases, repo, results, mechanisms),
         "bank-count": lambda: add_bank_cases(cases, repo, results, mechanisms),
         "blast-radius": lambda: add_blast_cases(cases, repo, results, mechanisms),
-        "scheduling": lambda: add_scheduling_cases(cases, repo, results, mechanisms),
+        "drfm-address-setup": lambda: add_drfm_setup_cases(cases, repo, results, mechanisms),
     }
     for name in classes:
         builders[name]()
@@ -243,23 +241,42 @@ def configure(case: Case, trace_path: Path) -> dict:
     controller = config["MemorySystem"]["Controller"]
     if case.remove_plugins:
         controller.pop("plugins", None)
+        config["Frontend"]["num_expected_insts"] = case.instructions
+        dram = config["MemorySystem"]["DRAM"]
+        dram["RFM"] = {"BRC": MAIN_BRC}
+        dram["RH_radius"] = case.radius
+        return config
+    if case.mechanism is None:
+        raise ValueError(f"{case.name}: non-baseline case has no mechanism")
+    apply_paper_parameters(
+        config, case.mechanism, case.nominal_nrh, case.scheduler,
+        radius=case.radius, drfm_setup=case.drfm_setup,
+        instructions=case.instructions,
+    )
     if case.latency_only:
         controller["log_request_latencies"] = 1
-    plugins = controller.get("plugins", [])
-    if plugins and (case.queue_type is not None or case.insecure is not None):
-        plugin = plugins[0]["ControllerPlugin"]
-        if case.queue_type is not None:
-            plugin["queue_type"] = case.queue_type
-        if case.insecure is not None:
-            plugin["insecure_read_queue"] = case.insecure
-    if case.row_cap is not None:
-        controller["RowPolicy"] = {"impl": "ClosedRowPolicy", "cap": case.row_cap}
-    dram = config["MemorySystem"]["DRAM"]
-    if case.brc is not None:
-        dram["RFM"] = {"BRC": case.brc}
-    if case.rh_radius is not None:
-        dram["RH_radius"] = case.rh_radius
     return config
+
+
+def case_manifest(case: Case, trace: str) -> dict:
+    if case.remove_plugins:
+        return {
+            "experiment_class": case.experiment_class,
+            "trace": trace,
+            "scheduler": "baseline",
+            "brc": MAIN_BRC,
+            "blast_radius": case.radius,
+            "instructions": case.instructions,
+            "cores": case.cores,
+        }
+    assert case.mechanism is not None
+    manifest = parameter_manifest(
+        case.mechanism, case.nominal_nrh, case.scheduler,
+        radius=case.radius, drfm_setup=case.drfm_setup,
+        instructions=case.instructions, cores=case.cores,
+    )
+    manifest.update({"experiment_class": case.experiment_class, "trace": trace})
+    return manifest
 
 
 def active_jobs() -> set[str]:
@@ -451,9 +468,12 @@ def main() -> None:
             run_dir.mkdir(parents=True, exist_ok=True)
             case.result_dir.mkdir(parents=True, exist_ok=True)
             generated = run_dir / f"{stem}_config.yaml"
+            generated_manifest = run_dir / f"{stem}_manifest.yaml"
             job_script = run_dir / f"{stem}.sh"
             with generated.open("w") as stream:
                 yaml.safe_dump(configure(case, trace_dir / trace), stream, sort_keys=False)
+            with generated_manifest.open("w") as stream:
+                yaml.safe_dump(case_manifest(case, trace), stream, sort_keys=False)
             partial = partial_path(output)
             slurm_log = case.result_dir / f"{stem}_slurm.log"
             validator = Path(__file__).resolve().parent / "validate_result.py"

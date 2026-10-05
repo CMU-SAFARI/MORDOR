@@ -317,9 +317,5 @@ class BHDRAMController final : public IBHDRAMController, public Implementation {
     void finalize() override {
     }
 
-    void increment_proq_waits(AddrVec_t addr_vec) override {}
-    int get_proq_waits(AddrVec_t addr_vec) override {
-      return -1;
-    }
 };
 }   // namespace Ramulator

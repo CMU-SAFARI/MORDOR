@@ -77,8 +77,8 @@ def three_config_overheads(mechanism, variant, metric):
     return [100.0 * (values[trace] / baseline[trace] - 1.0) for trace in traces]
 
 fig, axes = plt.subplots(1, 2, figsize=(7.1, 3.15), constrained_layout=True)
-metric_specs = [("cycles", "Cycle Count\nOverhead [%]"),
-                ("energy", "DRAM Energy\nOverhead [%]")]
+metric_specs = [("cycles", "Performance Overhead [%]\nover no RowHammer Mitigation"),
+                ("energy", "DRAM Energy Overhead [%]\nover no RowHammer Mitigation")]
 x = list(range(len(cycle_energy_mechanisms)))
 bar_width = 0.22
 for ax, (metric, ylabel) in zip(axes, metric_specs):
@@ -99,7 +99,7 @@ for ax, (metric, ylabel) in zip(axes, metric_specs):
     ax.set_xticks(x, [MECHANISM_LABELS[m] for m in cycle_energy_mechanisms],
                   rotation=25, ha="right")
     ax.yaxis.set_major_locator(MaxNLocator(nbins=5))
-    ax.set_facecolor(PLOT_BACKGROUND_COLOR)
+    ax.set_facecolor("white")
     ax.grid(axis="y", color=GRID_COLOR, linewidth=0.7, alpha=0.6)
     ax.set_axisbelow(True)
     ax.spines[["top", "right"]].set_visible(False)
@@ -113,7 +113,7 @@ configuration_legend = axes[1].legend(
     handles=configuration_handles, title="Configuration", loc="upper right",
     frameon=True, fontsize=12, title_fontsize=12,
 )
-configuration_legend.get_frame().set_facecolor("#f4f4f4")
+configuration_legend.get_frame().set_facecolor("white")
 configuration_legend.get_frame().set_edgecolor(GRID_COLOR)
 plt.show()
 

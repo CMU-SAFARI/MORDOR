@@ -22,7 +22,7 @@ The DDR5 implementations of the evaluated read disturbance mitigation techniques
 
 ## Configuration and scheduling policies
 
-The [PARA PRT-125 MORDOR configuration](ramulator/ramulator_configs/example_ddr5_config_PARA_125_read.yaml)
+The [PARA nominal-threshold-125 MORDOR configuration](ramulator/ramulator_configs/example_ddr5_config_PARA_125_read.yaml)
 and corresponding [Priority Scheduling configuration](ramulator/ramulator_configs/example_ddr5_config_PARA_125_priority.yaml)
 illustrate the scheduling policies evaluated in the paper.
 Both use the `Blacklisting` controller and `FRFCFS_blacklisting` scheduler.
@@ -69,6 +69,15 @@ validation or partial-output promotion. For paper comparisons, use
 `reproduce.py` to retain consistent cohort definitions and result checks.
 
 ## Extending the reproduction workflow
+
+The [paper parameter definitions](reproduction/paper_config.py) specify the
+nominal RowHammer thresholds, technique-specific parameters, and security
+margins. The generator applies these parameters to the configuration
+templates. MORDOR uses an effective threshold reduced by twice the blast
+radius; the DRFM address-setup study reserves one additional activation.
+For nominal threshold 125 and blast radius 1, the effective threshold is
+123, or 122 with DRFM address setup. Each generated configuration has a
+sibling `_manifest.yaml` recording these parameters.
 
 The public interface is [reproduce.py](reproduce.py), which delegates to
 [reproduction/reproduce.py](reproduction/reproduce.py).

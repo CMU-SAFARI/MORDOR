@@ -88,11 +88,6 @@ class GenericDRAMController final : public IDRAMController, public Implementatio
       }
     }
 
-    void increment_proq_waits(AddrVec_t addr_vec) override {}
-    int get_proq_waits(AddrVec_t addr_vec) override {
-      return -1;
-    }
-
 
     void init() override {
       m_wr_low_watermark =  param<float>("wr_low_watermark").desc("Threshold for switching back to read mode.").default_val(0.2f);
@@ -115,7 +110,7 @@ class GenericDRAMController final : public IDRAMController, public Implementatio
     void setup(IFrontEnd* frontend, IMemorySystem* memory_system) override {
       m_dram = memory_system->get_ifce<IDRAM>();
       m_bank_addr_idx = m_dram->m_levels("bank");
-     // m_priority_buffer.max_size = 10000000;  // just increased this to a very stupid number 
+     // m_priority_buffer.max_size = 10000000;
 
       m_num_cores = frontend->get_num_cores();
 

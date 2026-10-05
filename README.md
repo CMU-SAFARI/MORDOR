@@ -129,7 +129,7 @@ outputs:
 The `main` class compares the baseline without read disturbance mitigation,
 Priority Scheduling of PROs, MORDOR, and the Insecure configuration, which
 schedules PROs in the read queue without aggressor-row blacklisting, at a
-Preventive Refresh Threshold (PRT) of 125. It evaluates six read
+nominal RowHammer threshold of 125. It evaluates six read
 disturbance mitigation techniques: ABACuS, Hydra, PARA, CoMeT, DAPPER,
 and Graphene.
 A single-workload evaluation requires multiple simulations. Slurm supports
@@ -147,18 +147,20 @@ two execution paths: serial execution on a local Linux machine and parallel
 execution on a Slurm installation. Both run directly from your checkout using
 configurable paths and scheduler settings.
 
-For example, Figure 6 needs the `main` and `multi-prt` classes. After local
+For example, Figure 6 requires the `main` class. After local
 setup, run:
 
 ```bash
-.venv/bin/python reproduce.py local resume --classes main multi-prt
-.venv/bin/python reproduce.py local progress --classes main multi-prt
+.venv/bin/python reproduce.py local resume --classes main
+.venv/bin/python reproduce.py local progress --classes main
 .venv/bin/python reproduce.py figures -- --figures 6
 ```
 
 Run plotting after all selected simulations are valid. The figure generator
 builds `paper_results/` from `results/` and writes PNGs into `figures/`.
-The complete matrix contains 7,767 simulations; data-derived Figures 2 and
+The bundle includes `manifest.csv`, which
+records the source files and their paper-figure consumers.
+The complete matrix contains 6,165 simulations; data-derived Figures 2 and
 5–14 are supported. Conceptual Figures 1, 3, and 4 are not generated.
 
 ## Hardware implementation and reproduction

@@ -8,6 +8,7 @@
 /reproduction_workspace/
 /cputraces/
 /ramulator/build/
+/ramulator/build-*/
 /ramulator/libramulator.so
 /ramulator/ramulator2
 

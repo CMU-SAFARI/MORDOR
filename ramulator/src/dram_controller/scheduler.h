@@ -17,8 +17,6 @@ class IScheduler {
 
     virtual ReqBuffer::iterator get_best_request(ReqBuffer& buffer) = 0;
 
-    virtual ReqBuffer::iterator get_best_request_old(ReqBuffer& buffer) = 0; 
-
     virtual void tick() = 0;
 };
 

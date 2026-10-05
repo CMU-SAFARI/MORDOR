@@ -54,10 +54,6 @@ class FRFCFS : public IScheduler, public Implementation {
       return candidate;
     }
 
-    ReqBuffer::iterator get_best_request_old(ReqBuffer &buffer) override {
-      return get_best_request(buffer);
-    }
-
   virtual void tick() override {
   }
 };

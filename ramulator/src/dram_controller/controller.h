@@ -61,10 +61,11 @@ class IDRAMController : public Clocked<IDRAMController> {
 
     virtual bool checkBlacklisted(AddrVec_t& address) = 0;
 
-    virtual void increment_proq_waits(AddrVec_t addr_vec) = 0;
-    virtual int get_proq_waits(AddrVec_t addr_vec) = 0;
+    virtual bool checkBlacklisted(Request& req) {
+      return checkBlacklisted(req.addr_vec);
+    }
 
-    // cursed QPRAC shenanigans
+    // Optional QPRAC controller hook.
     virtual bool try_enqueue_qprac_proactive_drfm() {
       return false;
     }

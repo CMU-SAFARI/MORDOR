@@ -372,10 +372,6 @@ private:
 
     void addToBlacklist(Request& req, bool ab) override {}
     bool checkBlacklisted(AddrVec_t& address) override {return false;}
-    void increment_proq_waits(AddrVec_t addr_vec) override {}
-    int get_proq_waits(AddrVec_t addr_vec) override {
-      return -1;
-    }
     bool is_to_open_row(ReqBuffer::iterator req) override {
       for (auto it = m_active_buffer.begin(); it != m_active_buffer.end(); ++it) {
         if (it == req)

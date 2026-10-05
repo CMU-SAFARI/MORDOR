@@ -15,7 +15,7 @@ class GrapheneDDR5 : public IControllerPlugin, public Implementation {
   RAMULATOR_REGISTER_IMPLEMENTATION(IControllerPlugin, GrapheneDDR5, "GrapheneDDR5", "Graphene with DRFM.")
 
   private:
-    std::deque<Request> m_memory_buffer;  
+    std::deque<Request> m_memory_buffer;
 
     IDRAM* m_dram = nullptr;
 
@@ -32,7 +32,7 @@ class GrapheneDDR5 : public IControllerPlugin, public Implementation {
     int m_rank_level = -1;
     int m_bank_level = -1;
     int m_row_level = -1;
-    int m_bank_group_level = -1; 
+    int m_bank_group_level = -1;
 
     int m_num_ranks = -1;
     int m_num_banks_per_rank = -1;
@@ -57,22 +57,22 @@ class GrapheneDDR5 : public IControllerPlugin, public Implementation {
 
 
   public:
-    void init() override { 
+    void init() override {
       m_num_table_entries = param<int>("num_table_entries").required();
       m_activation_threshold = param<int>("activation_threshold").required();
       m_reset_period_ns = param<int>("reset_period_ns").required();
       m_is_debug = param<bool>("debug").default_val(false);
 
-      m_queue_type = param<std::string>("queue_type").default_val("priority"); 
+      m_queue_type = param<std::string>("queue_type").default_val("priority");
       m_insecure_read_queue = param<bool>("insecure_read_queue")
                                   .desc("Send read-queue DRFMs without blacklisting their target rows.")
                                   .default_val(false);
-      
+
       register_stat(s_num_sent_drfm).name("num_sent_DRFM");
       register_stat(s_num_resent_drfm).name("num_re-sent_DRFM");
       register_stat(s_num_rejected_drfm).name("num_rejected_DRFM");
       register_stat(s_num_rejected_resent_drfm).name("num_rejected_re-sent_DRFM");
-    
+
     };
 
     void setup(IFrontEnd* frontend, IMemorySystem* memory_system) override {
@@ -92,11 +92,11 @@ class GrapheneDDR5 : public IControllerPlugin, public Implementation {
       m_bank_level = m_dram->m_levels("bank");
       m_row_level = m_dram->m_levels("row");
       m_bank_group_level = m_dram->m_levels("bankgroup");
-   
+
 
       m_num_ranks = m_dram->get_level_size("rank");
-      m_num_banks_per_rank = m_dram->get_level_size("bankgroup") == -1 ? 
-                             m_dram->get_level_size("bank") : 
+      m_num_banks_per_rank = m_dram->get_level_size("bankgroup") == -1 ?
+                             m_dram->get_level_size("bank") :
                              m_dram->get_level_size("bankgroup") * m_dram->get_level_size("bank");
       m_num_rows_per_bank = m_dram->get_level_size("row");
 
@@ -138,10 +138,9 @@ class GrapheneDDR5 : public IControllerPlugin, public Implementation {
           s_num_resent_drfm += 1;
           accepted = m_ctrl->priority_send(next);
         }
-        // could not re-issue request 
+        // could not re-issue request
         if (!accepted) {
           s_num_rejected_resent_drfm += 1;
-          //std::cout << "rejected re-issued DRFM request" << std::endl;
           // prepend the rejected request to preserve FIFO order
           m_memory_buffer.push_front(next);
         }
@@ -153,7 +152,7 @@ class GrapheneDDR5 : public IControllerPlugin, public Implementation {
             accumulated_dimension *= m_dram->m_organization.count[i + 1];
             flat_bank_id += req_it->addr_vec[i] * accumulated_dimension;
           }
-          
+
           int row_id = req_it->addr_vec[m_row_level];
 
           if (m_is_debug) {
@@ -165,7 +164,7 @@ class GrapheneDDR5 : public IControllerPlugin, public Implementation {
           }
 
           if (m_activation_count_table[flat_bank_id].find(row_id) == m_activation_count_table[flat_bank_id].end()) {
-            // if row is not in the table, find an entry 
+            // if row is not in the table, find an entry
             // with a count equal to that of the spillover counter
             bool found = false;
             int to_remove = -1;
@@ -184,6 +183,7 @@ class GrapheneDDR5 : public IControllerPlugin, public Implementation {
               }
             }
             if (found) {
+              // for debug
               if (m_is_debug) {
                 // print the row that is being removed
                 std::cout << "Removing row " << to_remove << " from table " << flat_bank_id << std::endl;
@@ -204,7 +204,7 @@ class GrapheneDDR5 : public IControllerPlugin, public Implementation {
           else {
             // if row in table, increment its activation count
             m_activation_count_table[flat_bank_id][row_id] += 1;
-            
+
             if (m_is_debug) {
               std::cout << "Row " << row_id << " in table[" << flat_bank_id << "]" << std::endl;
               std::cout << "  └  " << "threshold: " << m_activation_threshold << std::endl;
@@ -212,7 +212,7 @@ class GrapheneDDR5 : public IControllerPlugin, public Implementation {
             }
 
             // check if the count exceeds the threshold
-            if (m_activation_count_table[flat_bank_id][row_id] >= m_activation_threshold) { 
+            if (m_activation_count_table[flat_bank_id][row_id] >= m_activation_threshold) {
               if (m_is_debug) {
                 std::cout << "Row " << row_id << " in table " << flat_bank_id << " has exceeded the threshold!" << std::endl;
               }
@@ -220,14 +220,15 @@ class GrapheneDDR5 : public IControllerPlugin, public Implementation {
               Request drfm_req(req_it->addr_vec, m_DRFM_req_id);
               drfm_req.addr_vec[m_bank_group_level] = -1;
 
+              // issue DRFM to aggressor row
               if (m_queue_type == "read") {
+                // blacklist the address until DRFM request complete
                 s_num_sent_drfm += 1;
                 if (!m_insecure_read_queue) {
                   m_ctrl->addToBlacklist(drfm_req, false);
                 }
-
                 bool accepted = m_ctrl->send(drfm_req);
-                if (!accepted) { 
+                if (!accepted) {
                   s_num_rejected_drfm += 1;
                   m_memory_buffer.push_back(drfm_req);
                 }
