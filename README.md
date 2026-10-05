@@ -20,7 +20,8 @@ algorithm. We evaluate MORDOR alongside six
 state-of-the-art read disturbance mitigation techniques: ABACuS, Hydra,
 PARA, CoMeT, DAPPER, and Graphene.
 
-This repository contains the Ramulator 2.0 implementation, experiment
+This repository contains a MORDOR-specific implementation derived from
+[Ramulator 2.0](https://github.com/CMU-SAFARI/ramulator2), experiment
 configurations for six read disturbance mitigation techniques, figure-generation
 scripts, and a Verilog hardware implementation with an OpenROAD reproduction
 flow. We provide these implementations and workflows to enable reproduction
