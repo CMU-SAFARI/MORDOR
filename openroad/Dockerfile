@@ -1,4 +1,4 @@
-# MORDOR hardware-overhead reproducer (MICRO 2026 Artifact Evaluation)
+# MORDOR hardware-overhead reproducer (Paper Result Reproduction)
 #
 # Self-contained image that regenerates the OpenROAD numbers behind the paper's Table 1
 # (CACTI is included only for the optional --blocked-bit table, which is not in the paper).
@@ -7,9 +7,9 @@
 #   * the authors' exact `openroad` binary + their flow-script patches (the overlay), and
 #   * a pinned CACTI (for the optional table only).
 #
-#   docker build -t mordor-hw-ae .
-#   docker run --rm -v "$PWD/out:/out" mordor-hw-ae                 # paper Table 1 (impl1)
-#   docker run --rm -v "$PWD/out:/out" mordor-hw-ae --blocked-bit   # + optional impl2 table
+#   docker build -t mordor-hw .
+#   docker run --rm -v "$PWD/out:/out" mordor-hw                 # paper Table 1 (impl1)
+#   docker run --rm -v "$PWD/out:/out" mordor-hw --blocked-bit   # + optional impl2 table
 #
 # BASE IMAGE = the authors' exact ORFS commit: `git describe b14dd6d76` = v3.0-4018-gb14dd6d76
 # (ORFS b14dd6d76, 2025-10-16). This provides yosys + the NanGate45 platform. It also ships a

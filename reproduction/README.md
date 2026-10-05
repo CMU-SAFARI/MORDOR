@@ -1,22 +1,14 @@
-# Cluster experiment workflow
+# Experiment workflow
 
-The top-level `../reproduce.py` is the recommended interface. This directory
-contains the underlying experiment matrix, job generation, semantic validation,
-and one launcher per experiment class.
+We provide a common interface, `../reproduce.py`, for the simulation
+experiments. This directory contains the experiment definitions, job
+generation and execution scripts, result validation, and a launcher for each
+experiment class.
 
-The evaluator-facing hosted connection profile is `ae_cluster_config.yaml`.
-This path requires an SSH private key supplied separately through the
-artifact-evaluation channel; it is only for evaluators authorized to use our
-SAFARI infrastructure. Credentials are read from
-`../credentials/ae_cluster_key`, which is deliberately excluded from version
-control. `../setup_ae.sh` creates that slot when needed, uploads the local
-GitHub checkout into the initially empty remote
-`/mnt/galactica/aevaluator2/MORDOR`, checks the remote environment, and builds
-the simulator. Hosted evaluator commands run from that directory. Re-running
-setup updates source files but preserves
-`/mnt/galactica/aevaluator2/MORDOR/artifact_workspace`.
+The experiments compare scheduling policies for Preventive Refresh Operations
+(PROs) issued by read disturbance mitigation techniques.
 
-Two native execution profiles are also provided:
+Two execution profiles are provided:
 
 - `generic_slurm_config.yaml` runs directly from a checkout on any Slurm
   cluster. Site-specific partition, account, QoS, constraint, time, extra
@@ -24,18 +16,15 @@ Two native execution profiles are also provided:
 - `local_config.yaml` runs the same jobs serially on one Linux machine and
   limits compiler parallelism to two jobs by default.
 
-Neither native profile requires the SAFARI SSH key or access to our
-infrastructure.
-
 Copy the selected template to the ignored `execution_config.yaml` before
-customizing it. The top-level README contains complete setup and launch
-examples. Native execution writes directly to `../results/`; no SSH upload or
-result-fetch step is involved.
+customizing it. The top-level [reproduction guide](../REPRODUCING.md) contains
+complete setup and launch examples. Both backends write directly to the
+workspace’s `results/` directory.
 
 For the complete 55-trace matrix on a generic Slurm cluster, run `slurm plan`,
 `slurm resume`, and `slurm progress` without `--classes` or `--traces`, always
 passing the customized profile. Once complete, run `reproduce.py figures`;
-native results are already local, so no fetch command is needed.
+results are already in the workspace.
 
 The complete local path follows the same sequence with the `local` target:
 run `local plan`, `local resume`, and `local progress` without `--classes` or
@@ -44,16 +33,17 @@ therefore take a very long time.
 
 Available classes:
 
-- `main`: baseline, Priority, MORDOR, and insecure PRT-125 runs.
+- `main`: the baseline without read disturbance mitigation, Priority
+  Scheduling, MORDOR, and Insecure configurations at PRT 125.
 - `multi-prt`: PRT 250, 500, and 1000 runs.
-- `latency`: the paper's `429.mcf` request-latency runs.
+- `latency`: demand memory request and PRO latency measurements for `429.mcf`.
 - `bank-count`: 8-bank and 32-bank sensitivity.
 - `blast-radius`: BRC-1 blast radii 1, 2, and 8.
 - `scheduling`: closed-row caps 4 and 16.
 
-Every class evaluates ABACuS alongside Hydra, PARA, CoMeT, DAPPER, and
-Graphene. The aggregate classes use the single 55-trace definition in
-`common.py`.
+Every class evaluates six read disturbance mitigation techniques: ABACuS,
+Hydra, PARA, CoMeT, DAPPER, and Graphene. The aggregate classes use the single
+55-trace definition in `common.py`.
 
 Figure 6 alone requires the `main` and `multi-prt` classes. After those
 classes finish, run
@@ -68,23 +58,23 @@ under `prt_sweep`, `latency`, `bank_count`, `blast_radius`, and `row_policy`.
 For direct operation inside a prepared cluster checkout:
 
 ```bash
-python artifact_evaluation/run_artifact.py build
-python artifact_evaluation/run_experiments.py \
+python reproduction/run_reproduction.py build
+python reproduction/run_experiments.py \
   --repo-root ramulator \
   --trace-dir /path/to/cputraces \
-  --workspace-root artifact_workspace \
+  --workspace-root reproduction_workspace \
   --ramulator ramulator/build/ramulator2 \
   --classes main
-python artifact_evaluation/run_experiments.py \
+python reproduction/run_experiments.py \
   --repo-root ramulator \
   --trace-dir /path/to/cputraces \
-  --workspace-root artifact_workspace \
+  --workspace-root reproduction_workspace \
   --ramulator ramulator/build/ramulator2 \
   --classes main --status
-python artifact_evaluation/run_experiments.py \
+python reproduction/run_experiments.py \
   --repo-root ramulator \
   --trace-dir /path/to/cputraces \
-  --workspace-root artifact_workspace \
+  --workspace-root reproduction_workspace \
   --ramulator ramulator/build/ramulator2 \
   --classes main --resume
 ```

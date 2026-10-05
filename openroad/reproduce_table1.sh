@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# One-command host wrapper for the MORDOR Table 1 artifact.
+# One-command host wrapper for the MORDOR Table 1 reproduction.
 #
 #   ./reproduce_table1.sh                 # build + full paper experiment
 #   ./reproduce_table1.sh --quick         # build + PROQ=32 smoke test
@@ -10,7 +10,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-IMAGE_NAME="${IMAGE_NAME:-mordor-hw-ae}"
+IMAGE_NAME="${IMAGE_NAME:-mordor-hw}"
 QUICK=0
 SKIP_BUILD=0
 BLOCKED_BIT=0
@@ -22,7 +22,7 @@ usage: ./reproduce_table1.sh [options]
 
 Options:
   --quick         Run only the PROQ=32 functional check (~20 min).
-  --skip-build    Reuse the existing mordor-hw-ae Docker image.
+  --skip-build    Reuse the existing mordor-hw Docker image.
   --blocked-bit   Include the supplementary non-paper blocked-bit experiment.
   --sudo          Run Docker through sudo.
   -h, --help      Show this help.
@@ -47,16 +47,16 @@ if ((USE_SUDO)); then
 fi
 
 if ! command -v docker >/dev/null 2>&1; then
-  echo "[MORDOR-AE] ERROR: Docker Engine/CLI is not installed." >&2
+  echo "[MORDOR] ERROR: Docker Engine/CLI is not installed." >&2
   echo "Install Docker Engine and the Docker Buildx plugin, then retry." >&2
   exit 2
 fi
 if ((USE_SUDO)) && ! command -v sudo >/dev/null 2>&1; then
-  echo "[MORDOR-AE] ERROR: --sudo was requested, but sudo is unavailable." >&2
+  echo "[MORDOR] ERROR: --sudo was requested, but sudo is unavailable." >&2
   exit 2
 fi
 if ! DOCKER_INFO="$("${DOCKER[@]}" info 2>&1)"; then
-  echo "[MORDOR-AE] ERROR: cannot connect to the Docker daemon." >&2
+  echo "[MORDOR] ERROR: cannot connect to the Docker daemon." >&2
   echo "${DOCKER_INFO}" >&2
   cat >&2 <<'EOF'
 Ensure that Docker Engine is running (on systemd hosts:
@@ -66,7 +66,7 @@ EOF
   exit 2
 fi
 if ! "${DOCKER[@]}" buildx version >/dev/null 2>&1; then
-  echo "[MORDOR-AE] WARNING: Docker Buildx is not installed." >&2
+  echo "[MORDOR] WARNING: Docker Buildx is not installed." >&2
   echo "The deprecated legacy builder may work today, but Buildx is recommended." >&2
 fi
 
@@ -74,12 +74,12 @@ cd "$ROOT"
 mkdir -p out
 
 if ((SKIP_BUILD == 0)); then
-  echo "[MORDOR-AE] Verifying the pinned OpenROAD executable"
+  echo "[MORDOR] Verifying the pinned OpenROAD executable"
   (
     cd "$ROOT/.."
     sha256sum -c CHECKSUMS.sha256
   )
-  echo "[MORDOR-AE] Building pinned Docker image: $IMAGE_NAME"
+  echo "[MORDOR] Building pinned Docker image: $IMAGE_NAME"
   "${DOCKER[@]}" build -t "$IMAGE_NAME" .
 fi
 
@@ -95,19 +95,19 @@ if ((BLOCKED_BIT)); then
   LOG="$ROOT/out/run-blocked-bit.log"
 fi
 
-echo "[MORDOR-AE] Running experiment; console log: $LOG"
+echo "[MORDOR] Running experiment; console log: $LOG"
 "${DOCKER[@]}" "${RUN_ARGS[@]}" 2>&1 | tee "$LOG"
 
-REPORT="$ROOT/out/mordor_ae_output.txt"
+REPORT="$ROOT/out/mordor_table1_output.txt"
 if [[ ! -s "$REPORT" ]]; then
-  echo "[MORDOR-AE] ERROR: expected report was not produced: $REPORT" >&2
+  echo "[MORDOR] ERROR: expected report was not produced: $REPORT" >&2
   exit 1
 fi
 if grep -q '\[FAIL\]' "$LOG"; then
-  echo "[MORDOR-AE] ERROR: at least one analysis variant failed; inspect $LOG" >&2
+  echo "[MORDOR] ERROR: at least one analysis variant failed; inspect $LOG" >&2
   exit 1
 fi
 
-echo "[MORDOR-AE] Completed successfully."
-echo "[MORDOR-AE] Report: $REPORT"
-echo "[MORDOR-AE] Raw outputs: $ROOT/out/openroad_raw/"
+echo "[MORDOR] Completed successfully."
+echo "[MORDOR] Report: $REPORT"
+echo "[MORDOR] Raw outputs: $ROOT/out/openroad_raw/"

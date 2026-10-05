@@ -1,104 +1,82 @@
-# MORDOR hardware-overhead reproducer
+# MORDOR hardware implementation
 
-Regenerates MORDOR's area / static-power / dynamic-power / access-latency / access-energy
-numbers (OpenROAD + CACTI). Everything overlays onto a clone of OpenROAD-flow-scripts (ORFS).
+We model MORDOR's aggressor-row blacklist alongside a memory-controller
+request queue to evaluate its area, power, and scheduling-path latency
+overheads. The Verilog implementation is provided in
+[src/mordor_v9/mordor_v9.v](src/mordor_v9/mordor_v9.v). The evaluation uses
+OpenROAD synthesis and place-and-route with the NanGate45 library.
 
-Two models are included:
-- **v9 (current, per-request)** — the faithful model: a baseline MC request-queue array plus
-  the per-request "ready AND not-blacklisted" check done two ways (a compare-everything CAM
-  vs a blocked-bit per entry), with the PROQ structure costed separately in CACTI. **Use this one.**
-- **v7/v8 (earlier, per-bank stall)** — scheduler-logic + PROQ-CAM models that assumed a
-  whole-bank stall on a blacklisted request. Kept for reference and the CAM cross-checks.
+The Preventive Refresh Operation Queue (PROQ) stores outstanding Preventive
+Refresh Operations (PROs) issued by read disturbance mitigation techniques.
+MORDOR queries the PROQ before scheduling a demand memory request to
+prevent an aggressor row from being reactivated while its PRO is pending.
+The paper implementation performs this query using a content-addressable
+memory (CAM).
 
-## v9 — per-request blacklist (recommended)
+## RTL configurations
 
-`flow/designs/mordor_v9_eval.sh` drives everything and prints 7 sections:
+The `MODE` parameter selects the hardware configuration:
 
-| # | what | tool |
-|---|------|------|
-| 1 | logic area overhead (blocked-bit, CAM) vs baseline MC array | OpenROAD synth |
-| 2 | static power (leakage) | OpenROAD |
-| 3 | dynamic power (internal+switching) | OpenROAD |
-| 3b | access latency, reg→ready_o (on the per-cycle scheduling path) | OpenROAD STA |
-| 4 | MC array as RAM vs searchable CAM (area / leak / search / energy) | CACTI |
-| 5 | PROQ structure vs size P: FIFO vs 1-port install CAM vs M-port CAM | CACTI |
-| 6 | consolidated impl2 overhead = OpenROAD logic delta + CACTI PROQ | both |
-| 7 | install-lookup latency: synth flip-flop CAM vs CACTI dense CAM | both |
+| Mode | Configuration | Role |
+| --- | --- | --- |
+| `0` | Baseline memory-controller request-queue array | Provides the reference for incremental hardware overhead. |
+| `1` | CAM lookup for each request-queue entry | Implements the blacklist query on the scheduling path; used for Table 1. |
+| `2` | One blocked bit per request-queue entry | Provides a supplementary alternative to the CAM lookup on the scheduling path. |
+| `3` | PROQ lookup when a request is admitted | Models the installation lookup for a latency comparison; not included in the default Table 1 evaluation. |
 
-RTL: `flow/designs/src/mordor_v9/mordor_v9.v` — one parameterized module, selected by `MODE`:
-- `0` baseline (MC array alone), `1` CAM (M×PROQ compare-everything), `2` blocked-bit
-  (per-entry, set/cleared on PRO enqueue/dequeue), `3` install (admit-time PROQ search —
-  drives `installed_blk_o`, used only for the OpenROAD-vs-CACTI latency cross-check).
-- Params: `MC_ENTRIES`, `PROQ_ENTRIES`, `ADDR_W` (=24), `MODE`. Applied via ORFS
-  `VERILOG_TOP_PARAMS` (yosys `chparam`).
+The remaining parameters are `MC_ENTRIES` for request-queue capacity,
+`PROQ_ENTRIES` for PROQ capacity, and `ADDR_W` for address width. Their default
+values are 64, 32, and 24, respectively. The evaluation scripts apply these
+parameters through the ORFS `VERILOG_TOP_PARAMS` setting.
 
-Config: `flow/designs/nangate45/mordor_v9/` — `config.mk` + `constraint.sdc` (10 ns relaxed
-clock, to isolate area/power without timing-driven gate bloat polluting the deltas).
+The [design configuration](nangate45/mordor_v9/config.mk) and
+[timing constraint](nangate45/mordor_v9/constraint.sdc) define the synthesis
+and place-and-route environment. The 10 ns clock constraint is used to
+measure area and power without imposing a tighter timing constraint.
+The synthesized scheduling-path latency is measured separately.
 
-### Run
+## Table 1 evaluation
+
+The bundled workflow consists of
+[mordor_table1_analyze.sh](mordor_table1_analyze.sh),
+[mordor_table1_report.sh](mordor_table1_report.sh), and
+[mordor_table1.sh](mordor_table1.sh). The analysis script evaluates the baseline
+and CAM configurations with PROQ capacities of 32, 48, 64, and 78 entries.
+The report expresses MORDOR's hardware overhead relative to the baseline.
+
+Use the Docker wrapper described in the
+[hardware reproduction guide](../../../README.md). Inside the prepared
+container, the equivalent command from the ORFS `flow/` directory is:
+
+```bash
+bash designs/mordor_table1.sh
 ```
-cd flow
-bash designs/mordor_v9_eval.sh            # build (if stale) + report, OpenROAD + CACTI
-bash designs/mordor_v9_eval.sh cacti      # CACTI sections only (seconds)
-BUILD=0 bash designs/mordor_v9_eval.sh    # NO rebuild -- report from existing artifacts
+
+The environment variables `MC`, `PROQS`, and `WORKDIR` select the
+memory-controller request-queue capacity, PROQ capacities, and intermediate
+result directory. Their defaults are 64, `32 48 64 78`, and
+`/tmp/mordor_table1`, respectively. Changing them defines a different
+hardware configuration from the default paper evaluation.
+
+## Supplementary implementation
+
+The `--blocked-bit` option additionally evaluates `MODE=2` and uses CACTI
+to model the PROQ structure and its installation lookup. This configuration
+is not used for the paper's Table 1 results. `CACTI_DIR` identifies the
+CACTI installation within the prepared environment.
+
+```bash
+bash designs/mordor_table1.sh --blocked-bit
 ```
-Knobs (env vars): `MCS` (MC sizes, default `"16 32 64"`), `PROQS` (PROQ sizes, default
-`"16 32 64"`), `PROQ` (headline PROQ size, default `32`), `BUILD` (`1`=build if stale,
-`0`=report-only), `CACTI_DIR` (default `~/cacti`).
 
-### How to read it for a write-up (impl2 = blocked-bit)
-Section 6 already assembles this, but the recipe is:
-- **area** = OpenROAD `blk−base` logic delta (§1) **+** CACTI PROQ structure (§5).
-- **static** = OpenROAD leakage delta (§2) **+** CACTI PROQ leakage (§5).
-- **latency** = on-path `access` (§3b, must meet t_RRD) reported separately from off-path
-  `install` (§5/§7) — not max'd together.
-- **energy** = CACTI per-access search energy (§4/§5), e.g. 3.46 pJ/lookup at P=32.
+## Reports and intermediate results
 
-The PROQ is a FIFO if the admit-time lookup is not modeled (variant B), or a 1-port CAM if it
-is (variant A). Caveat: logic is NanGate45 std-cells, the PROQ is CACTI 45 nm `itrs-hp` — same
-units, different cell model (the CACTI part is the conservative, leakier one).
+Within the container, OpenROAD outputs are stored under
+`flow/{reports,logs,results}/nangate45/mordor_v9/<variant>/`.
+The analysis scripts write intermediate results to `WORKDIR`. The Docker
+entry point copies the report, OpenROAD reports and logs, and intermediate
+results into the mounted output directory.
 
-## v7/v8 — earlier per-bank models
-
-> **Not included in this AE package** — superseded by v9, and no paper number comes from
-> them; they live in the main working repo. Described here only for methodology history.
-
-`flow/designs/mordor_hw_eval.sh` (sections: latency, logic, cacti, xcheck):
-- `flow/designs/src/mordor_v7/` — `mordor_v7_sched` (tree arbiter), `mordor_v7_noarb`,
-  `per_bank_select`, `global_arbiter`.
-- `flow/designs/src/mordor_v8/` — `mordor_v8_cam` (PROQ CAM alone), `mordor_v8_fused`
-  (CAM search + scheduler).
-- `flow/designs/nangate45/mordor_v{7,8}/` — `config.mk` + `constraint.sdc` (5 ns = t_RRD).
-```
-cd flow
-bash designs/mordor_hw_eval.sh            # everything
-bash designs/mordor_hw_eval.sh cacti      # CAM only (seconds)
-bash designs/mordor_hw_eval.sh xcheck     # synth CAM vs CACTI cross-check
-```
-Knobs: `CACTI_DIR`, `CAM_BITS` (default `32` = 24b addr + pad), `SIZES` (default
-`"16 32 48 64"`), `CLK` (default `5.0`).
-
-## Shared
-`flow/scripts/final_report.tcl` — **PATCHED**: emits `report_power` + `report_design_area`
-+ `report_worst_slack` (vanilla ORFS calls `report_metrics`, which aborts on OpenROAD builds
-lacking `report_fmax_metric`). All the scripts' result extractors depend on these lines — keep
-this version.
-
-## Setup
-1. From the root of an ORFS clone, overlay the bundle (preserves `flow/...` paths):
-   ```
-   tar xzf mordor_hw_eval.tar.gz
-   ```
-2. CACTI: `git clone https://github.com/HewlettPackard/cacti ~/cacti` (or point `CACTI_DIR`
-   at an existing clone — the scripts auto-build it if the binary is missing).
-3. Build the ORFS Docker/local toolchain as usual, then run as above.
-
-## Outputs
-- OpenROAD per-build: `flow/{logs,reports,results}/nangate45/mordor_v{7,8,9}/<variant>/`
-  (`6_report.log`, `reports/.../synth_stat.txt`, `results/.../6_final.{v,sdc}`).
-- CACTI: `/tmp/mordor_v9_eval/c_*.out` (v9), `/tmp/mordor_hw_eval/*` (v7/8).
-- Each script prints its consolidated tables.
-
-Node: NanGate45 (45 nm) logic + CACTI 45 nm arrays (`itrs-hp` cells — fast/leaky, so a
-conservative upper bound on leakage). v9 logic uses a 10 ns clock; v7/8 use 5 ns = t_RRD.
-See each script's header for methodology notes.
+The bundled [final-report script](../scripts/final_report.tcl) emits
+`report_power`, `report_design_area`, and `report_worst_slack`. The result
+extractors depend on these measurements.

@@ -1,0 +1,8 @@
+# Paths for plotting and hardware reproduction, relative to the repository root.
+# Copy to reproduction_override.yaml and pass --config to customize them.
+paths:
+  results_root: results
+  paper_results_dir: paper_results
+  figure_dir: figures
+  plot_script: plotting/generate_paper_figures.py
+  openroad_dir: openroad

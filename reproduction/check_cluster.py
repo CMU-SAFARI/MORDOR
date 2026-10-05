@@ -57,7 +57,7 @@ def main() -> None:
     required_repo_files = (
         args.repo_root / "CMakeLists.txt",
         args.repo_root / "ramulator_configs",
-        args.repo_root.parent / "artifact_evaluation" / "run_experiments.py",
+        args.repo_root.parent / "reproduction" / "run_experiments.py",
     )
     missing_repo = [path for path in required_repo_files if not path.exists()]
     if missing_repo:
@@ -75,7 +75,7 @@ def main() -> None:
         )
 
     args.workspace_root.mkdir(parents=True, exist_ok=True)
-    probe = args.workspace_root / ".mordor_ae_write_test"
+    probe = args.workspace_root / ".mordor_reproduction_write_test"
     probe.write_text("ok\n")
     probe.unlink()
 

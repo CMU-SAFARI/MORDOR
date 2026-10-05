@@ -60,7 +60,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__, parents=[pre])
     parser.add_argument("--repo-root", default=paths.get("repo_root", repo_root_from_script()))
     parser.add_argument("--trace-dir", default=paths.get("trace_dir", "cputraces/cputraces"))
-    parser.add_argument("--workspace-root", default=paths.get("workspace_root", "artifact_workspace"))
+    parser.add_argument("--workspace-root", default=paths.get("workspace_root", "reproduction_workspace"))
     parser.add_argument("--ramulator", default=paths.get("ramulator", "ramulator2"))
     parser.add_argument("--classes", nargs="+", choices=EXPERIMENT_CLASSES,
                         default=defaults.get("experiment_classes", ["main"]))
@@ -315,7 +315,7 @@ def report_status(cases: list[Case], traces: list[str], backend: str) -> int:
         case_traces = LATENCY_TRACES if case.latency_only and traces == TRACES else traces
         for trace in case_traces:
             result = output_path(case, trace)
-            job_name = f"ae_{case.name}_{trace}".replace("_output", "")
+            job_name = f"mordor_{case.name}_{trace}".replace("_output", "")
             if is_valid_result(result, case):
                 counts["valid"] += 1
             elif job_name in active:
@@ -481,7 +481,7 @@ def main() -> None:
                 f"mv {shlex.quote(str(partial))} {shlex.quote(str(output))}\n"
             )
             job_script.chmod(0o755)
-            job_name = f"ae_{case.name}_{trace}".replace("_output", "")
+            job_name = f"mordor_{case.name}_{trace}".replace("_output", "")
             local_log = case.result_dir / f"{stem}_local.log"
             local_jobs.append((job_name, job_script, local_log))
             sbatch = [

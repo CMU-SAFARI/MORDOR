@@ -1,4 +1,4 @@
-"""Shared definitions for the MORDOR artifact workflow."""
+"""Shared definitions for the MORDOR reproduction workflow."""
 
 from __future__ import annotations
 

@@ -3,12 +3,9 @@
 *.py[cod]
 .DS_Store
 
-/artifact_evaluation/cluster_config.yaml
-/artifact_evaluation/execution_config.yaml
-/credentials/*
-!/credentials/.gitkeep
-/.artifact_source_revision
-/artifact_workspace/
+/reproduction/execution_config.yaml
+/reproduction/reproduction_override.yaml
+/reproduction_workspace/
 /cputraces/
 /ramulator/build/
 /ramulator/libramulator.so

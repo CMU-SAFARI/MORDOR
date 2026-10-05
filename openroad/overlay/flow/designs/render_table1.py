@@ -81,7 +81,7 @@ def main():
     allcols = list(range(9))
     x6cols  = [0, 1, 2, 3, 4, 6, 8]  # drop energy(5) & delay(7): per-instance
 
-    emit("TABLE 1  -- 45nm raw (what the artifact reproduces)", data, one, 1, allcols)
+    emit("TABLE 1  -- 45nm raw (what the reproduction flow produces)", data, one, 1, allcols)
     print()
     emit(f"TABLE 1  -- 14nm (45nm / power {POW} area {AREA} energy {EN} delay {DLY})",
          data, fac, 1, allcols)

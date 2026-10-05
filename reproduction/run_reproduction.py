@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Single entry point for building, running, and plotting the MORDOR artifact."""
+"""Single entry point for building and running MORDOR reproduction experiments."""
 
 from __future__ import annotations
 

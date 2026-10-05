@@ -3,6 +3,10 @@
 This directory reproduces the area, static power, dynamic power, and access
 latency values reported in Table 1 of the MORDOR paper.
 
+PROQ denotes the Preventive Refresh Operation Queue, which stores outstanding
+Preventive Refresh Operations (PROs) issued by read disturbance mitigation
+techniques.
+
 ## 1. Check the host
 
 Use an x86-64 Linux machine with:
@@ -28,7 +32,7 @@ or obtain Docker access from the system administrator.
 
 ## 2. Build the pinned environment
 
-The simplest complete procedure is:
+Run the complete evaluation from the `openroad/` directory:
 
 ```bash
 ./reproduce_table1.sh
@@ -41,7 +45,7 @@ experiment, and writes the console output to `out/run.log`. Use
 The equivalent manual build command is:
 
 ```bash
-docker build -t mordor-hw-ae .
+docker build -t mordor-hw .
 ```
 
 The first build normally takes 10–20 minutes, primarily to download the pinned
@@ -54,7 +58,7 @@ mkdir -p out
 
 docker run --rm \
   -v "$PWD/out:/out" \
-  mordor-hw-ae |& tee out/run.log
+  mordor-hw |& tee out/run.log
 ```
 
 The full run performs five synthesis and place-and-route flows—one baseline and
@@ -66,7 +70,7 @@ For a shorter functional check using only PROQ size 32:
 docker run --rm \
   -v "$PWD/out:/out" \
   -e PROQS=32 \
-  mordor-hw-ae |& tee out/run-p32.log
+  mordor-hw |& tee out/run-p32.log
 ```
 
 ## 4. Inspect the report
@@ -74,7 +78,7 @@ docker run --rm \
 The generated report is:
 
 ```text
-out/mordor_ae_output.txt
+out/mordor_table1_output.txt
 ```
 
 It contains three views:
@@ -93,9 +97,9 @@ values are:
 | 64 | 0.118 | 28.71 | 255.88 | 0.54 |
 | 78 | 0.144 | 46.18 | 311.26 | 0.67 |
 
-Small formatting differences aside, these values should agree with Table 1.
+Compare the numerical results with the values reported in Table 1.
 
-## 5. Compare with the shipped reference
+## 5. Compare with the reference results
 
 The normal run contains the paper implementation but omits the supplementary
 blocked-bit section. Compare the paper portion with:
@@ -103,20 +107,20 @@ blocked-bit section. Compare the paper portion with:
 ```bash
 diff -u \
   <(sed '/SUPPLEMENTARY/,$d' expected_output.txt) \
-  out/mordor_ae_output.txt
+  out/mordor_table1_output.txt
 ```
 
 No difference indicates a successful paper-result reproduction.
 
-For a byte-for-byte comparison of the entire shipped reference, including the
+For a byte-for-byte comparison of the complete reference report, including the
 non-paper blocked-bit experiment, run:
 
 ```bash
 docker run --rm \
   -v "$PWD/out:/out" \
-  mordor-hw-ae --blocked-bit |& tee out/run-blocked-bit.log
+  mordor-hw --blocked-bit |& tee out/run-blocked-bit.log
 
-diff out/mordor_ae_output.txt expected_output.txt
+diff out/mordor_table1_output.txt expected_output.txt
 ```
 
 An empty `diff` indicates an exact match. The blocked-bit section is
@@ -127,7 +131,7 @@ supplementary and is not the implementation reported in the paper.
 Confirm that the report contains all four numerical CAM-on-path rows:
 
 ```bash
-grep '^CAM-on-path' out/mordor_ae_output.txt
+grep '^CAM-on-path' out/mordor_table1_output.txt
 ```
 
 Also inspect `out/run.log` for `[FAIL]`. Raw OpenROAD reports and logs are

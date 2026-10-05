@@ -31,7 +31,7 @@ def trace_set_complete(destination: Path) -> bool:
 def download(url: str, destination: Path, expected_sha256: str) -> None:
     request = urllib.request.Request(
         url,
-        headers={"User-Agent": "MORDOR-artifact-evaluation/1.0"},
+        headers={"User-Agent": "MORDOR-reproduction/1.0"},
     )
     digest = hashlib.sha256()
     downloaded = 0

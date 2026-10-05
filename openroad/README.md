@@ -1,102 +1,117 @@
-# MORDOR — Hardware / Power / Area / Latency Overhead (MICRO 2026 Artifact)
+# MORDOR hardware result reproduction
 
-For a short reviewer-oriented procedure, see
-[`VALIDATE_TABLE1.md`](VALIDATE_TABLE1.md).
+We evaluate MORDOR's hardware overhead using Verilog, OpenROAD synthesis,
+and place-and-route with the NanGate45 technology library. This directory
+provides the implementation and workflow used to reproduce the area, static
+power, dynamic power, and scheduling-path latency results in Table 1.
+The power measurements also contribute to the hardware energy overhead
+reported in Figure 5.
 
-This artifact regenerates MORDOR's **hardware-overhead** numbers — the OpenROAD synthesis +
-place-and-route results behind the paper's **Table 1** (whose power numbers also feed the
-Fig. 5 hardware-energy component). It is fully self-contained via Docker: you do **not**
-clone or build OpenROAD-flow-scripts (ORFS) yourself. A *pinned prebuilt ORFS image*
-supplies yosys + the NanGate45 PDK, this artifact overlays the MORDOR design files, and it
-drops in the authors' exact `openroad` binary so the numbers reproduce **exactly**.
-The host wrapper verifies that binary against the repository checksum before
-building the Docker image.
-(CACTI is **not used by the paper** — it only models the optional `--blocked-bit` extra, below.)
+The Preventive Refresh Operation Queue (PROQ) stores outstanding Preventive
+Refresh Operations (PROs) issued by read disturbance mitigation techniques
+and serves as MORDOR's aggressor-row blacklist. We implement the PROQ as a
+content-addressable memory (CAM) to determine whether a demand memory
+request targets a blacklisted aggressor row.
 
-## The three scripts
-
-Everything is driven by three small scripts in `overlay/flow/designs/` (the container
-entrypoint just calls the third):
-
-| script | what it does |
-|--------|--------------|
-| `mordor_table1_analyze.sh [--blocked-bit]` | runs the OpenROAD synth+P&R for the Table-1 design points (baseline + impl1 CAM at PROQ ∈ {32,48,64,78}); incremental — already-built variants are skipped |
-| `mordor_table1_report.sh [--blocked-bit] [-o FILE]` | renders the existing analysis results into a new file (default `mordor_table1_report.txt`) + stdout; seconds, no builds |
-| `mordor_table1.sh [--blocked-bit] [-o FILE]` | analysis, then report |
-
-`--blocked-bit` (accepted by all three, default **off**) additionally analyzes/reports the
-**optional impl2 blocked-bit** alternative — a lower-cost design (one broadcast "blocked" bit
-per MC entry + a FIFO/RAM PROQ with a 1-port install CAM) that is **NOT in the paper**. It is
-the only part that uses CACTI.
-
-## What it produces
-
-The run writes the report to **`out/mordor_ae_output.txt`**: the paper's **Table 1** — impl1
-CAM-on-path overhead vs the baseline MC (area, static/dynamic power, and the synthesized
-`reg → ready_o` scheduling-path latency) — in three views:
-
-- **45 nm raw** — what the flow actually produces.
-- **14 nm** — 45 nm ÷ the authors' DeepScaleTool factors (power 2.438, area 12.5, energy 3.316,
-  delay 1.35). *These are the printed Table 1 values.*
-- **14 nm × 6 channels** — one MORDOR instance per memory channel (see "Per-channel" below);
-  area + power scale ×6, latency and per-lookup energy are per-instance.
-
-With `--blocked-bit`, a clearly-marked `SUPPLEMENTARY` section with the same views for the
-impl2 alternative follows below the Table-1 block.
+The Docker environment uses a pinned OpenROAD-flow-scripts (ORFS) image,
+the bundled MORDOR design files, and the OpenROAD executable used for the
+paper evaluation. The host wrapper verifies the executable's checksum
+before building the image. See [VALIDATE_TABLE1.md](VALIDATE_TABLE1.md) for
+numerical reference results and validation instructions.
 
 ## Requirements
-- **Docker Engine and CLI** with a running daemon, an **x86-64 Linux** host,
-  internet for the first build, **~10 GB free disk**, **≥ 8 GB RAM**, ideally
-  multi-core.
-- **Docker Buildx** is recommended. The Dockerfile currently works with the
-  deprecated legacy builder, but Docker is removing that fallback.
-- No GPU, no PDK download, no toolchain build.
 
-## Quick start
+Hardware evaluation requires an x86-64 Linux host, Docker Engine with a
+running daemon, at least 8 GB RAM, and approximately 10 GB free disk space.
+Internet access is required for the initial image build. Docker Buildx is
+recommended. The container supplies the synthesis tools and technology
+library; a local OpenROAD or PDK installation is not required.
 
-The simplest option is the host-side wrapper, which builds the image, ensures
-that `out/` exists, runs the experiment, and records the console log:
+## Reproduction procedure
+
+Run the following command from the `openroad/` directory:
 
 ```bash
 ./reproduce_table1.sh
 ```
 
-Use `./reproduce_table1.sh --quick` for the PROQ=32 smoke test,
-`./reproduce_table1.sh --skip-build` to reuse an existing image, or
-`./reproduce_table1.sh --sudo` on systems where Docker requires `sudo`.
+The wrapper builds the image, executes the evaluation, and records the
+console output in `out/run.log`. The default evaluation includes a baseline
+memory-controller request queue and four CAM implementations with PROQ
+capacities of 32, 48, 64, and 78 entries.
 
-The equivalent manual commands are:
+Use `--quick` to evaluate only the 32-entry PROQ, `--skip-build` to reuse an
+existing image, or `--sudo` when Docker requires elevated privileges:
 
 ```bash
-docker build -t mordor-hw-ae .                                    # ~10-20 min, mostly the base-image pull
+./reproduce_table1.sh --quick
+./reproduce_table1.sh --skip-build
+./reproduce_table1.sh --sudo
+```
+
+The equivalent manual procedure is:
+
+```bash
+docker build -t mordor-hw .
 mkdir -p out
-docker run --rm -v "$PWD/out:/out" mordor-hw-ae                   # paper Table 1, ~2-2.5 h
-docker run --rm -v "$PWD/out:/out" mordor-hw-ae --blocked-bit     # + optional impl2 table
+docker run --rm -v "$PWD/out:/out" mordor-hw
 ```
-Then compare against the shipped reference — `expected_output.txt` is byte-identical to the
-report of a `--blocked-bit` run on the pinned image:
+
+The initial image build typically takes 10–20 minutes. The complete hardware
+evaluation typically takes 2–2.5 hours; the 32-entry PROQ evaluation takes
+approximately 20 minutes. Execution time depends on the host system.
+
+## Evaluation scripts
+
+The scripts in `overlay/flow/designs/` separate analysis from reporting:
+
+| Script | Function |
+| --- | --- |
+| `mordor_table1_analyze.sh [--blocked-bit]` | Performs synthesis and place-and-route for the selected design points. Existing completed builds are retained. |
+| `mordor_table1_report.sh [--blocked-bit] [-o FILE]` | Extracts measurements and produces the report from existing results. The default output is `mordor_table1_report.txt`. |
+| `mordor_table1.sh [--blocked-bit] [-o FILE]` | Executes analysis followed by report generation. |
+
+See the [hardware implementation guide](overlay/flow/designs/mordor_README.md)
+for the RTL parameters and supplementary design.
+
+## Hardware measurements and scaling
+
+The report is written to `out/mordor_table1_output.txt`. It reports the
+incremental overhead of MORDOR relative to the baseline memory-controller
+request queue, including the synthesized register-to-`ready_o` path latency.
+Three sets of results are provided:
+
+- **45 nm:** measurements obtained with the NanGate45 library.
+- **14 nm:** estimates obtained by dividing the 45 nm measurements by the
+  DeepScaleTool factors used in the paper: 12.5 for area, 2.438 for power,
+  3.316 for energy, and 1.35 for delay.
+- **14 nm with six memory channels:** area and power estimates for one
+  MORDOR instance per channel. Area and power scale with the number of
+  channels; scheduling-path latency and energy per lookup remain per instance.
+
+Table 1 uses the 14 nm results for six memory channels. Raw OpenROAD reports
+and logs are stored under `out/openroad_raw/`, and intermediate results are
+copied to `out/raw_workdir/`.
+
+## Supplementary blocked-bit implementation
+
+The `--blocked-bit` option additionally evaluates an alternative
+implementation with one blocked bit per memory-controller request-queue
+entry and a PROQ modeled as a FIFO/RAM with a single-port installation CAM.
+This implementation is supplementary and is not used for the paper's
+Table 1 results. CACTI is used only for this supplementary analysis.
+
 ```bash
-diff out/mordor_ae_output.txt expected_output.txt   # empty for a --blocked-bit run
+./reproduce_table1.sh --blocked-bit
 ```
-A default (no-flag) run reproduces everything above the `SUPPLEMENTARY` banner; `diff` then
-shows only the absent impl2 block as trailing additions.
 
-The `TABLE 1` section prints to stdout and to `out/mordor_ae_output.txt`; raw OpenROAD reports
-and CACTI outputs land in `out/openroad_raw/` and `out/cacti_raw/`.
+Its results appear after the `SUPPLEMENTARY` heading in the report.
+For a comparison with the complete reference report, including this
+supplementary implementation:
 
-### Runtime
-| step | time | notes |
-|------|------|-------|
-| build | ~10–20 min | one-time; dominated by the ~6.5 GB base-image pull |
-| run (default) | ~2–2.5 h | 5 full-flow builds: base (~3 min) + the four impl1 Table-1 cams (P=32 ~13 min, P=48 ~19 min, P=64 ~34 min, P=78 ~54 min, big die) |
-| run (`--blocked-bit`) | + ~5 min | adds the impl2 blk variant (~3 min) + CACTI (seconds) |
+```bash
+diff out/mordor_table1_output.txt expected_output.txt
+```
 
-> **Kick-the-tires shortcut (~20 min).** Restrict the sweep to P = 32:
-> `docker run --rm -v "$PWD/out:/out" -e PROQS=32 mordor-hw-ae`. This builds only base +
-> cam@P=32 and emits a one-row Table 1 — eyeball it against the P=32 row of
-> `expected_output.txt` (the other rows are simply absent in this shortcut).
-
-> **Docker permissions.** If `docker` gives "permission denied … docker.sock", either add
-> yourself to the `docker` group (`sudo usermod -aG docker $USER`, then re-login) or prefix
-> the commands with `sudo`. If the socket does not exist, start Docker Engine
-> first (typically `sudo systemctl enable --now docker` on a systemd host).
+For the default evaluation, compare the paper results without the
+supplementary section as described in [VALIDATE_TABLE1.md](VALIDATE_TABLE1.md).

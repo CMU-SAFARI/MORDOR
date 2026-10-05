@@ -3,7 +3,7 @@
 #  CAM-on-path = impl1: the per-request PROQ CAM on the scheduling path --
 #  THE implementation reported in the paper's Table 1 (MC=64, P in {32 48 64 78}).
 ############################################################################
-TABLE 1  -- 45nm raw (what the artifact reproduces)
+TABLE 1  -- 45nm raw (what the reproduction flow produces)
 design       PROQ  OR stat mW  OR dyn mW   OR+CACTI um2  energy pJ  leak mW    delay ns  Tot stat mW 
 CAM-on-path  32    5.527       58.974      122171        -          -          0.69      5.527       
 CAM-on-path  48    9.197       77.874      184377        -          -          0.68      9.197       
@@ -28,7 +28,7 @@ CAM-on-path  78    46.1862     311.2568    144375.36     -          46.1862
 #  SUPPLEMENTARY  --  blocked-bit (impl2): FIFO/RAM PROQ + 1-port install CAM.
 #  The same measurements for the lower-cost alternative; NOT in the paper.
 ############################################################################
-TABLE 1  -- 45nm raw (what the artifact reproduces)
+TABLE 1  -- 45nm raw (what the reproduction flow produces)
 design       PROQ  OR stat mW  OR dyn mW   OR+CACTI um2  energy pJ  leak mW    delay ns  Tot stat mW 
 blocked-bit  32    0.232       1.294       7541          3.46       0.843      0.27      1.075       
 blocked-bit  48    0.232       1.294       8001          4.15       0.986      0.28      1.218       

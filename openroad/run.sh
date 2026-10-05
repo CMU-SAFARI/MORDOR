@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 #
-# MICRO-AE entrypoint. Sources the ORFS environment, runs the MORDOR Table-1 analysis +
+# MORDOR hardware reproduction entrypoint. Sources the ORFS environment, runs the MORDOR Table-1 analysis +
 # report (designs/mordor_table1.sh), and mirrors the report + raw artifacts to /out
 # (bind-mount a host dir there).
 #
-#   docker run --rm -v "$PWD/out:/out" mordor-hw-ae                 # paper Table 1 (impl1), ~2-2.5 h
-#   docker run --rm -v "$PWD/out:/out" mordor-hw-ae --blocked-bit   # + optional impl2 blocked-bit table
+#   docker run --rm -v "$PWD/out:/out" mordor-hw                 # paper Table 1 (impl1), ~2-2.5 h
+#   docker run --rm -v "$PWD/out:/out" mordor-hw --blocked-bit   # + optional impl2 blocked-bit table
 #
-# Quick partial check (~20 min, P=32 only):  docker run ... -e PROQS=32 mordor-hw-ae
+# Quick partial check (~20 min, P=32 only):  docker run ... -e PROQS=32 mordor-hw
 #
 # NB: no `set -e` -- a single failed variant must not abort the run or skip the /out mirror.
 set -uo pipefail
@@ -23,7 +23,7 @@ export SKIP_REPORT_METRICS="${SKIP_REPORT_METRICS:-1}"
 OUT=/out
 mkdir -p "$OUT"
 
-bash designs/mordor_table1.sh "$@" -o "$OUT/mordor_ae_output.txt" || true
+bash designs/mordor_table1.sh "$@" -o "$OUT/mordor_table1_output.txt" || true
 
 # Keep the raw OpenROAD/CACTI artifacts alongside the report when /out is mounted.
 cp -r /tmp/mordor_table1 "$OUT/raw_workdir" 2>/dev/null || true
@@ -32,5 +32,5 @@ cp -r reports/nangate45/mordor_v9 "$OUT/openroad_raw/reports" 2>/dev/null || tru
 cp -r logs/nangate45/mordor_v9    "$OUT/openroad_raw/logs"    2>/dev/null || true
 
 echo
-echo "[MORDOR-AE] done. Report -> $OUT/mordor_ae_output.txt (also printed above)."
-echo "[MORDOR-AE] Reference to eyeball against: expected_output.txt (shipped with the artifact)."
+echo "[MORDOR] done. Report -> $OUT/mordor_table1_output.txt (also printed above)."
+echo "[MORDOR] Reference to eyeball against: expected_output.txt (shipped with the reproduction package)."
