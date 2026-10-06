@@ -204,4 +204,4 @@ Elastic Refresh Scheduling," MICRO 2026.
 
 ## Contact
 
-Maria Makeenkova (mmakeenkova [at] ethz [dot] ch)
+Maria Makeenkova (masha [dot] makeyenkova [at] gmail [dot] com)
