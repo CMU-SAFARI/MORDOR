@@ -1,8 +1,19 @@
-# MORDOR: Mitigating Overheads of Read Disturbance Preventive Operations via Elastic Refresh Scheduling
+<h1 align="center">
+  MORDOR: Mitigating Overheads of Read Disturbance Preventive Operations via Elastic Refresh Scheduling
+</h1>
 
-[![Artifacts Available](https://img.shields.io/badge/Artifacts-Available-brightgreen)](#reproduction)
-[![Artifacts Evaluated — Functional](https://img.shields.io/badge/Artifacts_Evaluated-Functional-brightgreen)](#reproduction)
-[![Results Reproduced](https://img.shields.io/badge/Results-Reproduced-brightgreen)](#reproduction)
+<p align="center">
+  <img src="https://img.shields.io/badge/arXiv-Coming_Soon-b31b1b" alt="arXiv: Coming Soon">
+  <img src="https://img.shields.io/badge/MICRO-2026-007ec6" alt="MICRO 2026">
+  <a href="https://doi.org/10.5281/zenodo.21539624"><img src="https://img.shields.io/badge/DOI-10.5281%2Fzenodo.21539624-1682D4" alt="DOI: 10.5281/zenodo.21539624"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-f28c45" alt="License: MIT"></a>
+</p>
+
+<p align="center">
+  <a href="#reproduction"><img src="docs/badges/acm-artifacts-available-v1.1.png" alt="ACM Artifacts Available V1.1" width="140"></a>
+  <a href="#reproduction"><img src="docs/badges/acm-artifacts-evaluated-functional-v1.1.png" alt="ACM Artifacts Evaluated — Functional V1.1" width="140"></a>
+  <a href="#reproduction"><img src="docs/badges/acm-results-reproduced-v1.1.png" alt="ACM Results Reproduced V1.1" width="140"></a>
+</p>
 
 MORDOR is a preventive refresh scheduling policy that improves the performance
 and energy consumption of memory-controller-based read disturbance mitigation

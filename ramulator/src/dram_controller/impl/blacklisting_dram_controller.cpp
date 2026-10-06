@@ -197,6 +197,10 @@ public:
         req.mitigation_type != Request::MitigationType::WR) {
       return;
     }
+    // Hydra tracking reads and writes are mitigation operations. This model
+    // treats them as PROs for scheduling, PROQ occupancy, and PRO-intensity
+    // accounting. Separating metadata traffic from PROs is left to a future
+    // detailed sensitivity study.
     blacklist.push_back({metadata_row_address(req), req.mitigation_type});
     s_num_proq_adds++;
     update_typed_proq_add_stats(req.mitigation_type);
